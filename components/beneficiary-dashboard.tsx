@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -23,8 +23,6 @@ export function BeneficiaryActivationFlow() {
     setError('');
 
     try {
-      // This would integrate with Pi Network payment
-      // For now, we'll create a mock activation
       const token = localStorage.getItem('auth_token');
       const response = await fetch('/api/activation', {
         method: 'POST',
@@ -252,17 +250,26 @@ export function BeneficiaryDashboard() {
   const { user } = useAuth();
   const { distributions } = useTokenDistributions(user?.id);
   const [profileImage, setProfileImage] = useState<string>('');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const totalTokens = distributions.reduce((sum, dist) => sum + dist.amount_tokens, 0);
   const pendingTokens = distributions
     .filter((d) => d.distribution_status === 'pending')
     .reduce((sum, dist) => sum + dist.amount_tokens, 0);
 
+  if (!mounted) return null;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground">Welcome, {user?.full_name || user?.username}!</p>
+        <p className="text-muted-foreground">
+          Welcome, {user?.full_name || user?.username || ''}!
+        </p>
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">
