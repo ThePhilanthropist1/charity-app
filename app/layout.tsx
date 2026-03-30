@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     title: "Charity Token - Empowering 1 Million Lives",
     description: "Receive 500 Charity tokens monthly for 10 years",
   },
-    generator: 'v0.app'
+  generator: 'v0.app'
 };
 
 export default function RootLayout({
@@ -45,14 +45,23 @@ export default function RootLayout({
         <meta httpEquiv="x-ua-compatible" content="ie=edge" />
         <link rel="preconnect" href="https://fonts.googleapis.com" crossOrigin="anonymous" />
         <style>{`
-html {
-  font-family: ${GeistSans.style.fontFamily};
-  --font-sans: ${GeistSans.variable};
-  --font-mono: ${GeistMono.variable};
-}
+          *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+          html {
+            font-family: ${GeistSans.style.fontFamily};
+            --font-sans: ${GeistSans.variable};
+            --font-mono: ${GeistMono.variable};
+          }
+          body {
+            width: 100%;
+            min-height: 100vh;
+            background-color: #0A1628;
+            color: #F0F4F8;
+            -webkit-font-smoothing: antialiased;
+          }
+          #__next, main { width: 100%; }
         `}</style>
       </head>
-      <body>
+      <body className="w-full min-h-screen bg-[#0A1628]">
         <AppWrapper>{children}</AppWrapper>
       </body>
     </html>

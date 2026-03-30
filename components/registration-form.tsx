@@ -2,9 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card } from '@/components/ui/card';
 import { AlertCircle, UserPlus } from 'lucide-react';
 
 export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?: string }) {
@@ -12,7 +10,6 @@ export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState(defaultRole);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -40,7 +37,7 @@ export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?
           action: 'register',
           email,
           password,
-          role,
+          role: 'beneficiary',
         }),
       });
 
@@ -49,13 +46,7 @@ export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?
       if (result.success) {
         localStorage.setItem('auth_token', result.data.token);
         localStorage.setItem('auth_user', JSON.stringify(result.data.user));
-
-        // Redirect to appropriate dashboard or setup page
-        if (role === 'philanthropist') {
-          router.push('/philanthropist/kyc');
-        } else {
-          router.push('/beneficiary/activation');
-        }
+        router.push('/beneficiary/activation');
       } else {
         setError(result.error || 'Registration failed');
       }
@@ -67,108 +58,93 @@ export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?
   };
 
   return (
-    <div className="charity-glow-card p-8 space-y-6 max-w-md mx-auto">
-      <div className="space-y-2 text-center">
-        <h1 className="text-3xl font-bold text-foreground">Create Account</h1>
-        <p className="text-muted-foreground">Join the Charity Token community</p>
+    <div style={{ width: '100%' }}>
+
+      <div style={{ textAlign: 'center', marginBottom: 24 }}>
+        <h1 style={{ fontSize: 26, fontWeight: 800, color: 'white', marginBottom: 6 }}>Create Account</h1>
+        <p style={{ fontSize: 13, color: '#8FA3BF' }}>Join the Charity Token community</p>
       </div>
 
       {error && (
-        <div className="flex gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-200">{error}</p>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 10, marginBottom: 16 }}>
+          <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0, marginTop: 1 }} />
+          <p style={{ fontSize: 13, color: '#ffb3b3' }}>{error}</p>
         </div>
       )}
 
-      <form onSubmit={handleRegister} className="space-y-4">
-        <div>
-          <label className="block text-sm font-semibold mb-3 text-foreground">I am a:</label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setRole('beneficiary')}
-              className={`p-3 rounded-lg border-2 transition text-center ${
-                role === 'beneficiary'
-                  ? 'border-cyan-400 bg-cyan-500/10 text-foreground'
-                  : 'border-cyan-500/30 bg-card/50 text-muted-foreground hover:border-cyan-400/50'
-              }`}
-            >
-              <div className="font-semibold text-sm">Beneficiary</div>
-              <div className="text-xs opacity-75">Receive tokens</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setRole('philanthropist')}
-              className={`p-3 rounded-lg border-2 transition text-center ${
-                role === 'philanthropist'
-                  ? 'border-cyan-400 bg-cyan-500/10 text-foreground'
-                  : 'border-cyan-500/30 bg-card/50 text-muted-foreground hover:border-cyan-400/50'
-              }`}
-            >
-              <div className="font-semibold text-sm">Philanthropist</div>
-              <div className="text-xs opacity-75">Distribute tokens</div>
-            </button>
-          </div>
-        </div>
+      <form onSubmit={handleRegister}>
 
-        <div>
-          <label className="block text-sm font-semibold mb-2 text-foreground">Email Address</label>
-          <Input
+        {/* Email */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>
+            Email Address
+          </label>
+          <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
-            className="bg-card border-cyan-500/30 text-foreground placeholder:text-muted-foreground focus:border-cyan-400 focus:ring-cyan-500/30"
             required
+            style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-semibold mb-2 text-foreground">Password</label>
-          <Input
+        {/* Password */}
+        <div style={{ marginBottom: 6 }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>
+            Password
+          </label>
+          <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
-            className="bg-card border-cyan-500/30 text-foreground placeholder:text-muted-foreground focus:border-cyan-400 focus:ring-cyan-500/30"
             required
+            style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
           />
-          <p className="text-xs text-muted-foreground mt-1">Min 8 characters</p>
+          <p style={{ fontSize: 11, color: '#8FA3BF', marginTop: 4 }}>Min 8 characters</p>
         </div>
 
-        <div>
-          <label className="block text-sm font-semibold mb-2 text-foreground">Confirm Password</label>
-          <Input
+        {/* Confirm Password */}
+        <div style={{ marginBottom: 24 }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>
+            Confirm Password
+          </label>
+          <input
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="••••••••"
-            className="bg-card border-cyan-500/30 text-foreground placeholder:text-muted-foreground focus:border-cyan-400 focus:ring-cyan-500/30"
             required
+            style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
           />
         </div>
 
-        <button 
-          type="submit" 
-          className="charity-btn-primary w-full flex items-center justify-center gap-2"
+        {/* Submit */}
+        <button
+          type="submit"
           disabled={loading}
+          style={{ width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 8px 24px rgba(0,206,201,0.25)', opacity: loading ? 0.7 : 1 }}
         >
-          <UserPlus className="w-5 h-5" />
+          <UserPlus style={{ width: 18, height: 18 }} />
           {loading ? 'Creating account...' : 'Create Account'}
         </button>
+
       </form>
 
-      <div className="border-t border-cyan-500/20 pt-4">
-        <p className="text-center text-sm text-muted-foreground">
+      {/* Sign in link */}
+      <div style={{ borderTop: '1px solid rgba(0,206,201,0.15)', marginTop: 24, paddingTop: 18, textAlign: 'center' }}>
+        <p style={{ fontSize: 13, color: '#8FA3BF' }}>
           Already have an account?{' '}
           <button
             onClick={() => router.push('/login')}
-            className="text-cyan-400 hover:text-cyan-300 font-semibold transition"
+            style={{ color: '#67e8f9', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13 }}
           >
             Sign in
           </button>
         </p>
       </div>
+
     </div>
   );
 }
