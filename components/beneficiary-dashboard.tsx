@@ -1,10 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { AlertCircle, CheckCircle, Coins, Copy } from 'lucide-react';
+import { AlertCircle, CheckCircle, Coins, Copy, CreditCard, Users, Info } from 'lucide-react';
 import { useTokenDistributions, useAuth } from '@/hooks/use-charity-api';
 import { ProfileUpload } from './profile-upload';
 import { MembershipCard } from './membership-card';
@@ -17,231 +14,257 @@ export function BeneficiaryActivationFlow() {
   const [error, setError] = useState('');
   const [transactionHash, setTransactionHash] = useState('');
   const [philanthropistUsername, setPhilanthropistUsername] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [isPiBrowser, setIsPiBrowser] = useState(false);
+
+  const walletAddress = '0x1234567890abcdef';
+
+  useEffect(() => {
+    const ua = navigator.userAgent || '';
+    setIsPiBrowser(ua.includes('PiBrowser') || ua.includes('Pi Network'));
+  }, []);
+
+  const copyWallet = () => {
+    navigator.clipboard.writeText(walletAddress);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handlePiPayment = async () => {
+    if (!isPiBrowser) return;
     setLoading(true);
     setError('');
-
     try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/activation', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: 'pi_payment',
-          activation_method: 'pi_payment',
-          payment_id: 'mock_' + Date.now(),
-          txid: 'mock_txid_' + Date.now(),
-          amount_pi: 6.0,
-        }),
-      });
+      const Pi = (window as any).Pi;
+      if (!Pi) throw new Error('Pi SDK not available. Please make sure you are using Pi Browser.');
 
-      const result = await response.json();
-      if (result.success) {
-        setSuccess(true);
-      } else {
-        setError(result.error || 'Payment failed');
-      }
-    } finally {
+      await Pi.createPayment(
+        {
+          amount: 6.0,
+          memo: 'Charity Token Account Activation',
+          metadata: { purpose: 'activation', userId: user?.id },
+        },
+        {
+          onReadyForServerApproval: async (paymentId: string) => {
+            const token = localStorage.getItem('auth_token');
+            await fetch('/api/activation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ action: 'approve_pi', payment_id: paymentId }),
+            });
+          },
+          onReadyForServerCompletion: async (paymentId: string, txid: string) => {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch('/api/activation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({
+                action: 'pi_payment',
+                activation_method: 'pi_payment',
+                payment_id: paymentId,
+                txid,
+                amount_pi: 6.0,
+              }),
+            });
+            const result = await response.json();
+            if (result.success) setSuccess(true);
+            else setError(result.error || 'Payment completion failed');
+            setLoading(false);
+          },
+          onCancel: () => {
+            setError('Payment was cancelled.');
+            setLoading(false);
+          },
+          onError: (err: any) => {
+            setError(err?.message || 'Payment failed. Please try again.');
+            setLoading(false);
+          },
+        }
+      );
+    } catch (err: any) {
+      setError(err?.message || 'Payment failed. Please try again.');
       setLoading(false);
     }
   };
 
   const handleWalletTransfer = async () => {
-    if (!transactionHash.trim()) {
-      setError('Please enter transaction hash');
-      return;
-    }
-
+    if (!transactionHash.trim()) { setError('Please enter transaction hash'); return; }
     setLoading(true);
     setError('');
-
     try {
       const token = localStorage.getItem('auth_token');
       const response = await fetch('/api/activation', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: 'wallet_transfer',
-          activation_method: 'wallet_transfer',
-          transaction_hash: transactionHash,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ action: 'wallet_transfer', activation_method: 'wallet_transfer', transaction_hash: transactionHash }),
       });
-
       const result = await response.json();
-      if (result.success) {
-        setSuccess(true);
-      } else {
-        setError(result.error || 'Verification failed');
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (result.success) setSuccess(true);
+      else setError(result.error || 'Verification failed');
+    } finally { setLoading(false); }
   };
 
   const handlePhilanthropistActivation = async () => {
-    if (!philanthropistUsername.trim()) {
-      setError('Please enter philanthropist username');
-      return;
-    }
-
+    if (!philanthropistUsername.trim()) { setError('Please enter philanthropist username'); return; }
     setLoading(true);
     setError('');
-
     try {
       const token = localStorage.getItem('auth_token');
       const response = await fetch('/api/activation', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: 'philanthropist',
-          activation_method: 'philanthropist',
-          philanthropist_username: philanthropistUsername,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ action: 'philanthropist', activation_method: 'philanthropist', philanthropist_username: philanthropistUsername }),
       });
-
       const result = await response.json();
-      if (result.success) {
-        setSuccess(true);
-      } else {
-        setError(result.error || 'Activation failed');
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (result.success) setSuccess(true);
+      else setError(result.error || 'Activation failed');
+    } finally { setLoading(false); }
   };
 
   if (success) {
     return (
-      <Card className="w-full max-w-2xl mx-auto p-8 text-center charity-glow-card">
-        <CheckCircle className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
-        <h1 className="text-3xl font-bold mb-2 text-foreground">Account Activated!</h1>
-        <p className="text-muted-foreground mb-6">
-          Your account has been successfully activated. You will receive 500 Charity tokens monthly for the next 10 years.
+      <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: '#0F1F35', border: '1px solid rgba(0,206,201,0.2)', borderRadius: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
+        <div style={{ width: 72, height: 72, borderRadius: '50%', backgroundColor: 'rgba(0,184,148,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+          <CheckCircle style={{ width: 40, height: 40, color: '#00B894' }} />
+        </div>
+        <h2 style={{ fontSize: 26, fontWeight: 800, color: 'white', marginBottom: 10 }}>Account Activated! 🎉</h2>
+        <p style={{ fontSize: 14, color: '#8FA3BF', lineHeight: 1.7, marginBottom: 24 }}>
+          Your account has been successfully activated.<br />
+          You will receive 500 Charity Tokens monthly for 10 years.
         </p>
-        <Button onClick={() => window.location.href = '/beneficiary/dashboard'} className="charity-btn-primary">
+        <button
+          onClick={() => window.location.href = '/beneficiary/dashboard'}
+          style={{ padding: '14px 32px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,206,201,0.25)' }}
+        >
           Go to Dashboard
-        </Button>
-      </Card>
+        </button>
+      </div>
     );
   }
 
+  const methods = [
+    { id: 'pi', icon: <Coins style={{ width: 28, height: 28, color: '#00CEC9' }} />, bg: 'rgba(0,206,201,0.15)', title: 'Pi Network', amount: '6.0 Pi', desc: 'Pay with Pi — requires Pi Browser' },
+    { id: 'wallet', icon: <CreditCard style={{ width: 28, height: 28, color: '#00B894' }} />, bg: 'rgba(0,184,148,0.15)', title: 'Wallet Transfer', amount: '1 USDT', desc: 'Send to our wallet address and verify' },
+    { id: 'philanthropist', icon: <Users style={{ width: 28, height: 28, color: '#67e8f9' }} />, bg: 'rgba(103,232,249,0.15)', title: 'Via Philanthropist', amount: '1 USDT', desc: 'Contact a regional philanthropist on Telegram' },
+  ];
+
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Activate Your Account</h1>
-        <p className="text-muted-foreground">Choose a payment method to activate and start receiving 500 tokens monthly</p>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {error && (
-        <div className="flex gap-2 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-200">{error}</p>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 10 }}>
+          <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0, marginTop: 1 }} />
+          <p style={{ fontSize: 13, color: '#ffb3b3' }}>{error}</p>
         </div>
       )}
 
-      <div className="grid md:grid-cols-3 gap-4">
-        {/* Pi Network Payment */}
-        <Card
-          onClick={() => !success && setMethod(method === 'pi' ? null : 'pi')}
-          className={`p-6 cursor-pointer transition charity-glow-card ${method === 'pi' ? 'border-cyan-400' : ''}`}
+      {methods.map((m) => (
+        <div
+          key={m.id}
+          onClick={() => setMethod(method === m.id as any ? null : m.id as any)}
+          style={{ padding: 20, borderRadius: 18, border: `1px solid ${method === m.id ? 'rgba(0,206,201,0.6)' : 'rgba(0,206,201,0.2)'}`, backgroundColor: method === m.id ? 'rgba(0,206,201,0.05)' : 'rgba(255,255,255,0.03)', cursor: 'pointer', transition: 'all 0.2s', boxShadow: method === m.id ? '0 0 20px rgba(0,206,201,0.1)' : 'none', opacity: m.id === 'pi' && !isPiBrowser ? 0.7 : 1 }}
         >
-          <div className="text-center">
-            <Coins className="w-8 h-8 mx-auto mb-3 text-cyan-400" />
-            <h3 className="font-bold mb-2 text-foreground">Pi Network</h3>
-            <p className="text-2xl font-bold mb-4 charity-text-gradient">6.0 Pi</p>
-            <p className="text-sm text-muted-foreground mb-4">Fast and secure payment with Pi Network</p>
-            <Button
-              onClick={handlePiPayment}
-              disabled={loading || method !== 'pi'}
-              className="w-full charity-btn-primary"
-            >
-              {loading ? 'Processing...' : 'Pay with Pi'}
-            </Button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: method === m.id ? 16 : 0 }}>
+            <div style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: m.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {m.icon}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15, color: 'white' }}>{m.title}</span>
+                  {m.id === 'pi' && (
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, backgroundColor: isPiBrowser ? 'rgba(0,184,148,0.2)' : 'rgba(255,193,7,0.2)', color: isPiBrowser ? '#00B894' : '#ffc107', fontWeight: 600, border: `1px solid ${isPiBrowser ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)'}` }}>
+                      {isPiBrowser ? '✓ Pi Browser' : 'Pi Browser Only'}
+                    </span>
+                  )}
+                </div>
+                <span style={{ fontSize: 16, fontWeight: 800, background: 'linear-gradient(to right, #00CEC9, #00B894)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>{m.amount}</span>
+              </div>
+              <p style={{ fontSize: 12, color: '#8FA3BF', marginTop: 3 }}>{m.desc}</p>
+            </div>
           </div>
-        </Card>
 
-        {/* Wallet Transfer */}
-        <Card
-          onClick={() => !success && setMethod(method === 'wallet' ? null : 'wallet')}
-          className={`p-6 cursor-pointer transition charity-glow-card ${method === 'wallet' ? 'border-cyan-400' : ''}`}
-        >
-          <div className="text-center">
-            <span className="text-4xl mb-3 block">💳</span>
-            <h3 className="font-bold mb-2 text-foreground">Wallet Transfer</h3>
-            <p className="text-2xl font-bold mb-4 charity-text-gradient">1 USDT</p>
-            <p className="text-sm text-muted-foreground mb-4">Transfer to provided wallet address</p>
-            {method === 'wallet' && (
-              <div className="text-left space-y-3 mb-4 p-3 bg-cyan-500/5 rounded-lg">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Wallet Address</p>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs break-all bg-card p-2 rounded border border-cyan-500/30 flex-1 text-cyan-300">
-                      0x1234567890abcdef
-                    </code>
-                    <Copy className="w-4 h-4 cursor-pointer text-cyan-400 hover:text-cyan-300" />
+          {/* PI EXPANDED */}
+          {method === 'pi' && m.id === 'pi' && (
+            <div onClick={(e) => e.stopPropagation()}>
+              {!isPiBrowser ? (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px', backgroundColor: 'rgba(255,193,7,0.08)', border: '1px solid rgba(255,193,7,0.3)', borderRadius: 12 }}>
+                  <Info style={{ width: 16, height: 16, color: '#ffc107', flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <p style={{ fontSize: 13, color: '#ffd54f', fontWeight: 600, marginBottom: 4 }}>Pi Browser Required</p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6 }}>
+                      Pi Network payments only work inside the <strong style={{ color: '#ffc107' }}>Pi Browser</strong> app. Please open this website inside your Pi Browser to use this option. You can use <strong style={{ color: 'white' }}>Wallet Transfer</strong> or <strong style={{ color: 'white' }}>Via Philanthropist</strong> from any browser.
+                    </p>
                   </div>
                 </div>
-                <Input
-                  placeholder="Paste transaction hash"
-                  value={transactionHash}
-                  onChange={(e) => setTransactionHash(e.target.value)}
-                  className="text-sm bg-card border-cyan-500/30"
-                />
-                <Button
-                  onClick={handleWalletTransfer}
+              ) : (
+                <button
+                  onClick={handlePiPayment}
                   disabled={loading}
-                  className="w-full charity-btn-primary"
-                  size="sm"
+                  style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
                 >
-                  {loading ? 'Verifying...' : 'Verify Payment'}
-                </Button>
-              </div>
-            )}
-          </div>
-        </Card>
+                  {loading ? 'Processing Payment...' : 'Pay with Pi (Mainnet)'}
+                </button>
+              )}
+            </div>
+          )}
 
-        {/* Philanthropist Method */}
-        <Card
-          onClick={() => !success && setMethod(method === 'philanthropist' ? null : 'philanthropist')}
-          className={`p-6 cursor-pointer transition charity-glow-card ${method === 'philanthropist' ? 'border-cyan-400' : ''}`}
-        >
-          <div className="text-center">
-            <span className="text-4xl mb-3 block">👥</span>
-            <h3 className="font-bold mb-2 text-foreground">Via Philanthropist</h3>
-            <p className="text-2xl font-bold mb-4 charity-text-gradient">1 USDT</p>
-            <p className="text-sm text-muted-foreground mb-4">Contact a philanthropist from your region</p>
-            {method === 'philanthropist' && (
-              <div className="text-left space-y-3 mb-4">
-                <Input
-                  placeholder="Enter philanthropist username"
-                  value={philanthropistUsername}
-                  onChange={(e) => setPhilanthropistUsername(e.target.value)}
-                  className="text-sm bg-card border-cyan-500/30"
-                />
-                <p className="text-xs text-muted-foreground">Find regional philanthropists on our Telegram channel</p>
-                <Button
-                  onClick={handlePhilanthropistActivation}
-                  disabled={loading}
-                  className="w-full charity-btn-primary"
-                  size="sm"
-                >
-                  {loading ? 'Processing...' : 'Submit'}
-                </Button>
+          {/* WALLET EXPANDED */}
+          {method === 'wallet' && m.id === 'wallet' && (
+            <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 12, color: '#8FA3BF', marginBottom: 6, fontWeight: 600 }}>Send 1 USDT to this wallet address:</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', backgroundColor: '#0A1628', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)' }}>
+                  <code style={{ fontSize: 12, color: '#67e8f9', flex: 1, wordBreak: 'break-all' }}>{walletAddress}</code>
+                  <button onClick={copyWallet} style={{ background: 'none', border: 'none', cursor: 'pointer', color: copied ? '#00B894' : '#67e8f9', flexShrink: 0 }}>
+                    {copied ? <CheckCircle style={{ width: 16, height: 16 }} /> : <Copy style={{ width: 16, height: 16 }} />}
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
-        </Card>
-      </div>
+              <input
+                placeholder="Paste transaction hash here"
+                value={transactionHash}
+                onChange={(e) => setTransactionHash(e.target.value)}
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+              <button
+                onClick={handleWalletTransfer}
+                disabled={loading}
+                style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
+              >
+                {loading ? 'Verifying...' : 'Verify Payment'}
+              </button>
+            </div>
+          )}
+
+          {/* PHILANTHROPIST EXPANDED */}
+          {method === 'philanthropist' && m.id === 'philanthropist' && (
+            <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(0,206,201,0.05)', borderRadius: 10, border: '1px solid rgba(0,206,201,0.15)' }}>
+                <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6 }}>
+                  Find your regional philanthropist on our{' '}
+                  <a href="https://t.me/CharityTokenProject" target="_blank" rel="noopener noreferrer" style={{ color: '#67e8f9', fontWeight: 600 }}>Telegram channel</a>.
+                  Pay them 1 USDT and enter their username below.
+                </p>
+              </div>
+              <input
+                placeholder="Enter philanthropist username"
+                value={philanthropistUsername}
+                onChange={(e) => setPhilanthropistUsername(e.target.value)}
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+              <button
+                onClick={handlePhilanthropistActivation}
+                disabled={loading}
+                style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
+              >
+                {loading ? 'Processing...' : 'Submit'}
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+
     </div>
   );
 }
@@ -252,103 +275,68 @@ export function BeneficiaryDashboard() {
   const [profileImage, setProfileImage] = useState<string>('');
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
   const totalTokens = distributions.reduce((sum, dist) => sum + dist.amount_tokens, 0);
-  const pendingTokens = distributions
-    .filter((d) => d.distribution_status === 'pending')
-    .reduce((sum, dist) => sum + dist.amount_tokens, 0);
+  const pendingTokens = distributions.filter((d) => d.distribution_status === 'pending').reduce((sum, dist) => sum + dist.amount_tokens, 0);
 
   if (!mounted) return null;
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground">
-          Welcome, {user?.full_name || user?.username || ''}!
-        </p>
+        <h1 style={{ fontSize: 28, fontWeight: 800, color: 'white', marginBottom: 4 }}>Dashboard</h1>
+        <p style={{ fontSize: 14, color: '#8FA3BF' }}>Welcome, {user?.full_name || user?.username || ''}!</p>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
-        <Card className="p-6 charity-glow-card">
-          <p className="text-sm text-muted-foreground mb-2">Total Tokens Received</p>
-          <p className="text-4xl font-bold charity-text-gradient">{totalTokens.toLocaleString()}</p>
-        </Card>
-
-        <Card className="p-6 charity-glow-card">
-          <p className="text-sm text-muted-foreground mb-2">Pending Tokens</p>
-          <p className="text-4xl font-bold charity-text-gradient">{pendingTokens.toLocaleString()}</p>
-        </Card>
-
-        <Card className="p-6 charity-glow-card">
-          <p className="text-sm text-muted-foreground mb-2">Monthly Amount</p>
-          <p className="text-4xl font-bold charity-text-gradient">500</p>
-        </Card>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+        {[
+          { label: 'Total Tokens Received', value: totalTokens.toLocaleString() },
+          { label: 'Pending Tokens', value: pendingTokens.toLocaleString() },
+          { label: 'Monthly Amount', value: '500' },
+        ].map((s) => (
+          <div key={s.label} style={{ padding: '18px 14px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
+            <p style={{ fontSize: 11, color: '#8FA3BF', marginBottom: 6 }}>{s.label}</p>
+            <p style={{ fontSize: 24, fontWeight: 800, background: 'linear-gradient(to right, #00CEC9, #00B894)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>{s.value}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Profile & Membership Card Section */}
-        <div className="space-y-4">
-          <ProfileUpload
-            onProfileUpdate={(_, base64) => setProfileImage(base64)}
-            currentImage={profileImage}
-          />
-          <MembershipCard
-            userId={user?.id || ''}
-            fullName={user?.full_name || 'User'}
-            email={user?.email || ''}
-            profileImage={profileImage}
-            joinDate={user?.created_at || new Date().toISOString()}
-          />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <ProfileUpload onProfileUpdate={(_, base64) => setProfileImage(base64)} currentImage={profileImage} />
+          <MembershipCard userId={user?.id || ''} fullName={user?.full_name || 'User'} email={user?.email || ''} profileImage={profileImage} joinDate={user?.created_at || new Date().toISOString()} />
         </div>
 
-        {/* Distribution History */}
-        <Card className="p-6 charity-glow-card">
-          <h2 className="text-xl font-bold mb-4 text-foreground">Distribution History</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-cyan-500/30">
-                <tr>
-                  <th className="text-left py-2 text-muted-foreground">Month</th>
-                  <th className="text-left py-2 text-muted-foreground">Amount</th>
-                  <th className="text-left py-2 text-muted-foreground">Status</th>
+        <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: 'white', marginBottom: 16 }}>Distribution History</h2>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(0,206,201,0.2)' }}>
+                  {['Month', 'Amount', 'Status'].map((h) => (
+                    <th key={h} style={{ textAlign: 'left', paddingBottom: 10, color: '#8FA3BF', fontWeight: 600 }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {distributions.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="py-8 text-center text-muted-foreground">
-                      No distributions yet. Activate your account to start receiving tokens.
+                  <tr><td colSpan={3} style={{ paddingTop: 24, textAlign: 'center', color: '#8FA3BF', fontSize: 13 }}>No distributions yet. Activate your account to start receiving tokens.</td></tr>
+                ) : distributions.map((dist) => (
+                  <tr key={dist.id} style={{ borderBottom: '1px solid rgba(0,206,201,0.1)' }}>
+                    <td style={{ padding: '12px 0', color: 'white' }}>{dist.month_year}</td>
+                    <td style={{ padding: '12px 0', color: '#00B894', fontWeight: 600 }}>{dist.amount_tokens.toLocaleString()} CT</td>
+                    <td style={{ padding: '12px 0' }}>
+                      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, backgroundColor: dist.distribution_status === 'completed' ? 'rgba(0,184,148,0.15)' : dist.distribution_status === 'failed' ? 'rgba(255,107,107,0.15)' : 'rgba(255,193,7,0.15)', color: dist.distribution_status === 'completed' ? '#00B894' : dist.distribution_status === 'failed' ? '#ff6b6b' : '#ffc107' }}>
+                        {dist.distribution_status}
+                      </span>
                     </td>
                   </tr>
-                ) : (
-                  distributions.map((dist) => (
-                    <tr key={dist.id} className="border-b border-cyan-500/20 hover:bg-cyan-500/5 transition">
-                      <td className="py-3 text-foreground">{dist.month_year}</td>
-                      <td className="py-3 font-semibold text-emerald-300">{dist.amount_tokens.toLocaleString()} CT</td>
-                      <td className="py-3">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            dist.distribution_status === 'completed'
-                              ? 'bg-emerald-500/20 text-emerald-300'
-                              : dist.distribution_status === 'failed'
-                              ? 'bg-red-500/20 text-red-300'
-                              : 'bg-yellow-500/20 text-yellow-300'
-                          }`}
-                        >
-                          {dist.distribution_status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );
