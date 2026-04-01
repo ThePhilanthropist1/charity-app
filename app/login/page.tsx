@@ -27,8 +27,8 @@ export default function LoginPage() {
         localStorage.setItem('auth_user', JSON.stringify(result.data.user));
         const role = result.data.user.role;
         if (role === 'admin') router.push('/admin');
-        else if (role === 'philanthropist') router.push('/philanthropist/dashboard');
-        else router.push('/beneficiary/dashboard');
+        else if (role === 'philanthropist') router.push('/philanthropist-dashboard');
+        else router.push('/beneficiary-dashboard');
       } else {
         setError(result.error || 'Invalid email or password');
       }
@@ -45,8 +45,11 @@ export default function LoginPage() {
         <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0,206,201,0.08) 0%, transparent 70%)', borderRadius: '50%' }} />
         <div style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: 500, height: 500, background: 'radial-gradient(circle, rgba(0,184,148,0.08) 0%, transparent 70%)', borderRadius: '50%' }} />
       </div>
+
       <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', position: 'relative', zIndex: 10 }}>
         <div style={{ width: '100%', maxWidth: 460 }}>
+
+          {/* LOGO */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 28 }}>
             <div style={{ position: 'relative' }}>
               <div style={{ position: 'absolute', inset: -10, background: 'rgba(0,206,201,0.15)', filter: 'blur(16px)', borderRadius: '50%' }} />
@@ -56,47 +59,82 @@ export default function LoginPage() {
               Charity Token
             </h1>
           </div>
+
+          {/* CARD */}
           <div style={{ backgroundColor: '#0F1F35', border: '1px solid rgba(0,206,201,0.2)', borderRadius: 20, padding: '32px 28px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
             <h2 style={{ fontSize: 24, fontWeight: 800, color: 'white', textAlign: 'center', marginBottom: 6 }}>Welcome Back</h2>
             <p style={{ fontSize: 13, color: '#8FA3BF', textAlign: 'center', marginBottom: 24 }}>Sign in to your Charity Token account</p>
+
             {error && (
               <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 10, backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', color: '#ff6b6b', fontSize: 13, textAlign: 'center' }}>
                 {error}
               </div>
             )}
+
             <form onSubmit={handleLogin}>
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>Email Address</label>
-                <input suppressHydrationWarning type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+                <input
+                  suppressHydrationWarning
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                />
               </div>
+
               <div style={{ marginBottom: 8 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>Password</label>
-                <input suppressHydrationWarning type="password" placeholder="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+                <input
+                  suppressHydrationWarning
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                />
               </div>
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
-                <button type="button" style={{ fontSize: 12, color: '#67e8f9', background: 'transparent', border: 'none', cursor: 'pointer' }}>Forgot password?</button>
+                <button type="button" style={{ fontSize: 12, color: '#67e8f9', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                  Forgot password?
+                </button>
               </div>
-              <button type="submit" disabled={loading} style={{ width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 8px 24px rgba(0,206,201,0.25)', opacity: loading ? 0.7 : 1 }}>
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{ width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 8px 24px rgba(0,206,201,0.25)', opacity: loading ? 0.7 : 1 }}
+              >
                 <LogIn style={{ width: 16, height: 16 }} />
                 {loading ? 'Signing in...' : 'Sign In'}
               </button>
             </form>
+
             <p style={{ textAlign: 'center', fontSize: 13, color: '#8FA3BF', marginTop: 20 }}>
-              Do not have an account?{' '}
-              <button onClick={() => router.push('/register')} style={{ color: '#67e8f9', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13 }}>Create one now</button>
+              Don&apos;t have an account?{' '}
+              <button onClick={() => router.push('/register')} style={{ color: '#67e8f9', fontWeight: 600, background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13 }}>
+                Create one now
+              </button>
             </p>
           </div>
-          <a suppressHydrationWarning href="/whitepaper.pdf" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 20, color: '#67e8f9', fontSize: 13, textDecoration: 'none', fontWeight: 500 }}>
+
+          <a href="/whitepaper.pdf" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 20, color: '#67e8f9', fontSize: 13, textDecoration: 'none', fontWeight: 500 }}>
             <FileText style={{ width: 14, height: 14 }} />
             Read our Whitepaper
           </a>
-          <p suppressHydrationWarning style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: '#8FA3BF' }}>
-            <a href="/" style={{ color: '#67e8f9', textDecoration: 'none', fontWeight: 600 }}>Back to Home</a>
+
+          <p style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: '#8FA3BF' }}>
+            <a href="/" style={{ color: '#67e8f9', textDecoration: 'none', fontWeight: 600 }}>← Back to Home</a>
           </p>
         </div>
       </main>
+
       <footer style={{ position: 'relative', zIndex: 10, borderTop: '1px solid rgba(255,255,255,0.05)', padding: '16px 20px', textAlign: 'center' }}>
-        <p style={{ fontSize: 12, color: '#4A5568' }}>2026 Charity Token Project. All rights reserved.</p>
+        <p style={{ fontSize: 12, color: '#4A5568' }}>© 2026 Charity Token Project. All rights reserved.</p>
       </footer>
     </div>
   );

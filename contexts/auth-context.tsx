@@ -1,7 +1,20 @@
 'use client';
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase, User, getUserData } from '@/lib/supabase-client';
+import { supabase } from '@/lib/supabase-client';
+
+type User = {
+  id: string;
+  email: string;
+  full_name?: string;
+  role: 'beneficiary' | 'philanthropist' | 'admin';
+  status?: string;
+  username?: string;
+  created_at?: string;
+  country?: string;
+  phone?: string;
+  profile_picture?: string;
+  [key: string]: any;
+};
 
 type AuthContextType = {
   user: User | null;
@@ -19,47 +32,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Check initial session
-    const checkSession = async () => {
-      try {
-        const { data } = await supabase.auth.getSession();
-        if (data.session?.user) {
-          const userData = await getUserData(data.session.user.id);
-          setUser(userData);
+  const loadUserFromStorage = async () => {
+    try {
+      // Check custom JWT token first
+      const token = localStorage.getItem('auth_token');
+      const storedUser = localStorage.getItem('auth_user');
+
+      if (token && storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        // Fetch fresh user data from Supabase users table
+        const { data: freshUser } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', parsedUser.id)
+          .single();
+
+        if (freshUser) {
+          setUser(freshUser);
+          // Update stored user with fresh data
+          localStorage.setItem('auth_user', JSON.stringify(freshUser));
+        } else {
+          setUser(parsedUser);
         }
-      } catch (error) {
-        console.error('Auth error:', error);
-      } finally {
-        setLoading(false);
+        return true;
       }
+      return false;
+    } catch (e) {
+      console.error('Auth load error:', e);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      setLoading(true);
+      await loadUserFromStorage();
+      setLoading(false);
     };
-
-    checkSession();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const userData = await getUserData(session.user.id);
-        setUser(userData);
-      } else {
-        setUser(null);
-      }
-    });
-
-    return () => subscription?.unsubscribe();
+    init();
   }, []);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
     setUser(null);
+    await supabase.auth.signOut().catch(() => {});
+    window.location.href = '/login';
   };
 
   const refreshUser = async () => {
-    const { data } = await supabase.auth.getUser();
-    if (data.user) {
-      const userData = await getUserData(data.user.id);
-      setUser(userData);
+    try {
+      const storedUser = localStorage.getItem('auth_user');
+      if (!storedUser) return;
+      const parsedUser = JSON.parse(storedUser);
+      const { data: freshUser } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', parsedUser.id)
+        .single();
+      if (freshUser) {
+        setUser(freshUser);
+        localStorage.setItem('auth_user', JSON.stringify(freshUser));
+      }
+    } catch (e) {
+      console.error('Refresh error:', e);
     }
   };
 
