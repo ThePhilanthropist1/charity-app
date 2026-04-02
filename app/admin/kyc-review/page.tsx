@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Spinner } from '@/components/ui/spinner';
 import { supabase, getPendingKYCSubmissions, approveKYC, rejectKYC, logAdminAction } from '@/lib/supabase-client';
 import { useAuth } from '@/contexts/auth-context';
+import {
+  CheckCircle, XCircle, Clock, Users, ArrowLeft,
+  User, Phone, MapPin, Calendar, FileText, Shield, Eye
+} from 'lucide-react';
+import Image from 'next/image';
 
-export default function AdminDashboardPage() {
+export default function AdminKYCReviewPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [kycSubmissions, setKycSubmissions] = useState<any[]>([]);
@@ -18,344 +20,306 @@ export default function AdminDashboardPage() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [reviewNotes, setReviewNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [approvedToday, setApprovedToday] = useState(0);
+  const [rejectedToday, setRejectedToday] = useState(0);
+
+  const showToast = (msg: string, type: 'success' | 'error') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   useEffect(() => {
-    if (!authLoading && user?.role !== 'admin') {
-      router.push('/');
-      return;
+    if (!authLoading) {
+      loadKYCSubmissions();
+      loadTodayStats();
     }
-
-    loadKYCSubmissions();
-  }, [user, authLoading, router]);
+  }, [authLoading]);
 
   const loadKYCSubmissions = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const submissions = await getPendingKYCSubmissions();
+      const submissions = await getPendingKYCSubmissions().catch(() => []);
       setKycSubmissions(submissions || []);
-    } catch (error) {
-      console.error('Error loading KYC submissions:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+
+  const loadTodayStats = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const { data: approved } = await supabase.from('kyc_submissions').select('id').eq('submission_status', 'approved').gte('reviewed_at', today);
+      const { data: rejected } = await supabase.from('kyc_submissions').select('id').eq('submission_status', 'rejected').gte('reviewed_at', today);
+      setApprovedToday(approved?.length || 0);
+      setRejectedToday(rejected?.length || 0);
+    } catch (e) { console.error(e); }
   };
 
   const handleApprove = async () => {
     if (!selectedKYC || !user?.id) return;
-
     setSubmitting(true);
     try {
       await approveKYC(selectedKYC.id, user.id, reviewNotes);
-      
-      // Log action
-      await logAdminAction(user.id, 'kyc_approved', selectedKYC.philanthropist_id, {
-        kycId: selectedKYC.id,
-        notes: reviewNotes,
-      });
-
+      await logAdminAction(user.id, 'kyc_approved', selectedKYC.philanthropist_id, { kycId: selectedKYC.id, notes: reviewNotes });
+      showToast('KYC approved successfully!', 'success');
       setSelectedKYC(null);
       setReviewNotes('');
       setReviewAction(null);
       await loadKYCSubmissions();
-    } catch (error: any) {
-      console.error('Error approving KYC:', error);
-      alert('Failed to approve KYC: ' + error.message);
-    } finally {
-      setSubmitting(false);
-    }
+      await loadTodayStats();
+    } catch (e: any) {
+      showToast('Failed to approve: ' + e.message, 'error');
+    } finally { setSubmitting(false); }
   };
 
   const handleReject = async () => {
     if (!selectedKYC || !user?.id) return;
-
-    if (!rejectionReason.trim()) {
-      alert('Please provide a rejection reason');
-      return;
-    }
-
+    if (!rejectionReason.trim()) { showToast('Please provide a rejection reason', 'error'); return; }
     setSubmitting(true);
     try {
       await rejectKYC(selectedKYC.id, user.id, rejectionReason, reviewNotes);
-
-      // Log action
-      await logAdminAction(user.id, 'kyc_rejected', selectedKYC.philanthropist_id, {
-        kycId: selectedKYC.id,
-        reason: rejectionReason,
-        notes: reviewNotes,
-      });
-
+      await logAdminAction(user.id, 'kyc_rejected', selectedKYC.philanthropist_id, { kycId: selectedKYC.id, reason: rejectionReason });
+      showToast('KYC rejected.', 'success');
       setSelectedKYC(null);
       setRejectionReason('');
       setReviewNotes('');
       setReviewAction(null);
       await loadKYCSubmissions();
-    } catch (error: any) {
-      console.error('Error rejecting KYC:', error);
-      alert('Failed to reject KYC: ' + error.message);
-    } finally {
-      setSubmitting(false);
-    }
+      await loadTodayStats();
+    } catch (e: any) {
+      showToast('Failed to reject: ' + e.message, 'error');
+    } finally { setSubmitting(false); }
   };
+
+  const s = { minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif' };
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Spinner />
+      <div style={{ ...s, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 48, height: 48, border: '3px solid rgba(0,206,201,0.3)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
+          <p style={{ color: '#8FA3BF' }}>Loading KYC submissions...</p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
       </div>
     );
   }
 
   if (selectedKYC) {
     return (
-      <KYCReviewDetail
-        kyc={selectedKYC}
-        reviewAction={reviewAction}
-        rejectionReason={rejectionReason}
-        reviewNotes={reviewNotes}
-        submitting={submitting}
-        onSetReviewAction={setReviewAction}
-        onSetRejectionReason={setRejectionReason}
-        onSetReviewNotes={setReviewNotes}
-        onApprove={handleApprove}
-        onReject={handleReject}
-        onBack={() => setSelectedKYC(null)}
-      />
+      <div style={s}>
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0,206,201,0.06) 0%, transparent 70%)', borderRadius: '50%' }} />
+        </div>
+
+        {toast && (
+          <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, padding: '12px 20px', borderRadius: 12, backgroundColor: toast.type === 'success' ? 'rgba(0,184,148,0.15)' : 'rgba(255,107,107,0.15)', border: `1px solid ${toast.type === 'success' ? 'rgba(0,184,148,0.4)' : 'rgba(255,107,107,0.4)'}`, color: toast.type === 'success' ? '#00B894' : '#ff6b6b', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {toast.type === 'success' ? <CheckCircle style={{ width: 16, height: 16 }} /> : <XCircle style={{ width: 16, height: 16 }} />}
+            {toast.msg}
+          </div>
+        )}
+
+        <header style={{ position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(10,22,40,0.95)', backdropFilter: 'blur(12px)' }}>
+          <div style={{ maxWidth: 900, margin: '0 auto', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <button onClick={() => setSelectedKYC(null)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'transparent', color: '#8FA3BF', cursor: 'pointer', fontSize: 13 }}>
+              <ArrowLeft style={{ width: 15, height: 15 }} /> Back
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Shield style={{ width: 18, height: 18, color: '#9B59B6' }} />
+              <span style={{ fontWeight: 700, fontSize: 15 }}>KYC Review - {selectedKYC.full_name}</span>
+            </div>
+          </div>
+        </header>
+
+        <main style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 60px', position: 'relative', zIndex: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+            <div style={{ padding: 24, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700, color: 'white', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <User style={{ width: 16, height: 16, color: '#00CEC9' }} /> Applicant Information
+              </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {[
+                  { label: 'Full Name', value: selectedKYC.full_name, icon: <User style={{ width: 14, height: 14 }} /> },
+                  { label: 'Date of Birth', value: selectedKYC.date_of_birth, icon: <Calendar style={{ width: 14, height: 14 }} /> },
+                  { label: 'Country', value: selectedKYC.country, icon: <MapPin style={{ width: 14, height: 14 }} /> },
+                  { label: 'Region', value: selectedKYC.region, icon: <MapPin style={{ width: 14, height: 14 }} /> },
+                  { label: 'Phone Number', value: selectedKYC.phone_number, icon: <Phone style={{ width: 14, height: 14 }} /> },
+                  { label: 'Home Address', value: selectedKYC.home_address, icon: <MapPin style={{ width: 14, height: 14 }} /> },
+                  { label: 'ID Type', value: selectedKYC.id_type?.replace(/_/g, ' '), icon: <FileText style={{ width: 14, height: 14 }} /> },
+                  { label: 'Submitted', value: new Date(selectedKYC.submitted_at).toLocaleString(), icon: <Clock style={{ width: 14, height: 14 }} /> },
+                ].map((f) => (
+                  <div key={f.label} style={{ display: 'flex', gap: 12 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(0,206,201,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#00CEC9', marginTop: 2 }}>{f.icon}</div>
+                    <div>
+                      <p style={{ fontSize: 11, color: '#8FA3BF', marginBottom: 2 }}>{f.label}</p>
+                      <p style={{ fontSize: 14, color: 'white', fontWeight: 500, textTransform: f.label === 'ID Type' ? 'capitalize' : 'none' }}>{f.value || '-'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {selectedKYC.id_document_url && (
+                <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: '#8FA3BF', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <FileText style={{ width: 14, height: 14, color: '#00CEC9' }} /> Government ID
+                  </h3>
+                  <img src={selectedKYC.id_document_url} alt="ID Document" style={{ width: '100%', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', objectFit: 'cover' }} />
+                </div>
+              )}
+              {selectedKYC.face_capture_url && (
+                <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: '#8FA3BF', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <User style={{ width: 14, height: 14, color: '#00CEC9' }} /> Face Capture
+                  </h3>
+                  <img src={selectedKYC.face_capture_url} alt="Face Capture" style={{ width: '100%', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', objectFit: 'cover', maxHeight: 280 }} />
+                </div>
+              )}
+              {!selectedKYC.id_document_url && !selectedKYC.face_capture_url && (
+                <div style={{ padding: 24, borderRadius: 18, border: '1px solid rgba(255,193,7,0.2)', backgroundColor: 'rgba(255,193,7,0.05)', textAlign: 'center' }}>
+                  <p style={{ fontSize: 13, color: '#ffc107' }}>No documents uploaded</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ padding: 24, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: 'white', marginBottom: 18 }}>Review Decision</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8FA3BF', marginBottom: 6 }}>Review Notes (optional)</label>
+                <textarea value={reviewNotes} onChange={(e) => setReviewNotes(e.target.value)} placeholder="Add internal notes about this review..." rows={3} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+              </div>
+
+              {reviewAction === 'reject' && (
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#ff6b6b', marginBottom: 6 }}>Rejection Reason *</label>
+                  <textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} placeholder="Explain why this application is being rejected..." rows={3} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(255,107,107,0.3)', color: 'white', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button onClick={() => setReviewAction(reviewAction === 'approve' ? null : 'approve')} style={{ padding: '12px', borderRadius: 12, border: `2px solid ${reviewAction === 'approve' ? 'rgba(0,184,148,0.6)' : 'rgba(0,184,148,0.2)'}`, backgroundColor: reviewAction === 'approve' ? 'rgba(0,184,148,0.15)' : 'transparent', color: '#00B894', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <CheckCircle style={{ width: 18, height: 18 }} /> Approve
+                </button>
+                <button onClick={() => setReviewAction(reviewAction === 'reject' ? null : 'reject')} style={{ padding: '12px', borderRadius: 12, border: `2px solid ${reviewAction === 'reject' ? 'rgba(255,107,107,0.6)' : 'rgba(255,107,107,0.2)'}`, backgroundColor: reviewAction === 'reject' ? 'rgba(255,107,107,0.15)' : 'transparent', color: '#ff6b6b', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <XCircle style={{ width: 18, height: 18 }} /> Reject
+                </button>
+              </div>
+
+              {reviewAction && (
+                <button onClick={reviewAction === 'approve' ? handleApprove : handleReject} disabled={submitting} style={{ width: '100%', padding: '14px', borderRadius: 12, background: reviewAction === 'approve' ? 'linear-gradient(to right, #00B894, #00CEC9)' : 'linear-gradient(to right, #ff6b6b, #ee5a24)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+                  {submitting ? 'Processing...' : `Confirm ${reviewAction === 'approve' ? 'Approval' : 'Rejection'}`}
+                </button>
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">Admin Dashboard - KYC Review</h1>
-
-        <Card>
-          <div className="p-6">
-            <h2 className="text-xl font-semibold mb-4">Pending KYC Submissions</h2>
-
-            {kycSubmissions.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
-                No pending KYC submissions
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2 px-4">Name</th>
-                      <th className="text-left py-2 px-4">Country</th>
-                      <th className="text-left py-2 px-4">Phone</th>
-                      <th className="text-left py-2 px-4">Submitted</th>
-                      <th className="text-left py-2 px-4">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {kycSubmissions.map((kyc) => (
-                      <tr key={kyc.id} className="border-b hover:bg-muted">
-                        <td className="py-3 px-4">{kyc.full_name}</td>
-                        <td className="py-3 px-4">{kyc.country}</td>
-                        <td className="py-3 px-4">{kyc.phone_number}</td>
-                        <td className="py-3 px-4 text-sm text-muted-foreground">
-                          {new Date(kyc.submitted_at).toLocaleDateString()}
-                        </td>
-                        <td className="py-3 px-4">
-                          <Button
-                            size="sm"
-                            onClick={() => setSelectedKYC(kyc)}
-                          >
-                            Review
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        <Card className="mt-6">
-          <div className="p-6">
-            <h2 className="text-xl font-semibold mb-4">Quick Stats</h2>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-2xl font-bold">{kycSubmissions.length}</p>
-                <p className="text-muted-foreground">Pending Reviews</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold">—</p>
-                <p className="text-muted-foreground">Approved Today</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold">—</p>
-                <p className="text-muted-foreground">Rejected Today</p>
-              </div>
-            </div>
-          </div>
-        </Card>
+    <div style={s}>
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle, rgba(108,63,200,0.06) 0%, transparent 70%)', borderRadius: '50%' }} />
       </div>
-    </div>
-  );
-}
 
-function KYCReviewDetail({
-  kyc,
-  reviewAction,
-  rejectionReason,
-  reviewNotes,
-  submitting,
-  onSetReviewAction,
-  onSetRejectionReason,
-  onSetReviewNotes,
-  onApprove,
-  onReject,
-  onBack,
-}: any) {
-  return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-4xl mx-auto">
-        <Button variant="ghost" onClick={onBack} className="mb-4">
-          ← Back to List
-        </Button>
+      {toast && (
+        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, padding: '12px 20px', borderRadius: 12, backgroundColor: toast.type === 'success' ? 'rgba(0,184,148,0.15)' : 'rgba(255,107,107,0.15)', border: `1px solid ${toast.type === 'success' ? 'rgba(0,184,148,0.4)' : 'rgba(255,107,107,0.4)'}`, color: toast.type === 'success' ? '#00B894' : '#ff6b6b', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {toast.type === 'success' ? <CheckCircle style={{ width: 16, height: 16 }} /> : <XCircle style={{ width: 16, height: 16 }} />}
+          {toast.msg}
+        </div>
+      )}
 
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* KYC Details */}
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">Applicant Information</h2>
-
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-muted-foreground">Full Name</p>
-                <p className="font-medium">{kyc.full_name}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">Date of Birth</p>
-                <p className="font-medium">{kyc.date_of_birth}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">Country</p>
-                <p className="font-medium">{kyc.country}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">Region</p>
-                <p className="font-medium">{kyc.region}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">Phone Number</p>
-                <p className="font-medium">{kyc.phone_number}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">Home Address</p>
-                <p className="font-medium">{kyc.home_address}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">ID Type</p>
-                <p className="font-medium capitalize">{kyc.id_type}</p>
-              </div>
-
-              <div>
-                <p className="text-sm text-muted-foreground">Submitted</p>
-                <p className="font-medium">
-                  {new Date(kyc.submitted_at).toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </Card>
-
-          {/* Documents */}
-          <div className="space-y-6">
-            {kyc.id_document_url && (
-              <Card className="p-6">
-                <h3 className="font-semibold mb-3">Government ID</h3>
-                <img
-                  src={kyc.id_document_url}
-                  alt="ID Document"
-                  className="w-full rounded border"
-                />
-              </Card>
-            )}
-
-            {kyc.face_capture_url && (
-              <Card className="p-6">
-                <h3 className="font-semibold mb-3">Face Capture</h3>
-                <img
-                  src={kyc.face_capture_url}
-                  alt="Face Capture"
-                  className="w-full rounded border"
-                />
-              </Card>
-            )}
+      <header style={{ position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(10,22,40,0.95)', backdropFilter: 'blur(12px)' }}>
+        <div style={{ maxWidth: 900, margin: '0 auto', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Image src="/Charity token logo.jpg" alt="Charity Token" width={32} height={32} style={{ borderRadius: 8 }} />
+            <span style={{ fontWeight: 700, fontSize: 15 }}>Charity Token</span>
+            <span style={{ fontSize: 12, color: '#9B59B6', backgroundColor: 'rgba(108,63,200,0.15)', padding: '3px 10px', borderRadius: 999, border: '1px solid rgba(108,63,200,0.3)', fontWeight: 600 }}>ADMIN</span>
           </div>
+          <button onClick={() => router.push('/admin')} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'transparent', color: '#8FA3BF', cursor: 'pointer', fontSize: 12 }}>
+            <ArrowLeft style={{ width: 13, height: 13 }} /> Admin Home
+          </button>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 60px', position: 'relative', zIndex: 10 }}>
+        <div style={{ marginBottom: 24 }}>
+          <h1 style={{ fontSize: 'clamp(22px, 4vw, 30px)', fontWeight: 800, marginBottom: 4 }}>KYC Review</h1>
+          <p style={{ fontSize: 13, color: '#8FA3BF' }}>Review and approve or reject philanthropist KYC submissions.</p>
         </div>
 
-        {/* Review Section */}
-        <Card className="mt-6 p-6">
-          <h2 className="text-xl font-semibold mb-4">Review Decision</h2>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Review Notes</label>
-              <textarea
-                value={reviewNotes}
-                onChange={(e) => onSetReviewNotes(e.target.value)}
-                placeholder="Add your review notes..."
-                className="w-full border rounded px-3 py-2 text-sm"
-                rows={4}
-              />
-            </div>
-
-            {reviewAction === 'reject' && (
-              <div>
-                <label className="block text-sm font-medium mb-2">Rejection Reason *</label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => onSetRejectionReason(e.target.value)}
-                  placeholder="Explain why you&apos;re rejecting this application..."
-                  className="w-full border rounded px-3 py-2 text-sm"
-                  rows={3}
-                  required
-                />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
+          {[
+            { label: 'Pending Reviews', value: kycSubmissions.length, color: '#ffc107', bg: 'rgba(255,193,7,0.1)', border: 'rgba(255,193,7,0.2)', icon: <Clock style={{ width: 20, height: 20, color: '#ffc107' }} /> },
+            { label: 'Approved Today', value: approvedToday, color: '#00B894', bg: 'rgba(0,184,148,0.1)', border: 'rgba(0,184,148,0.2)', icon: <CheckCircle style={{ width: 20, height: 20, color: '#00B894' }} /> },
+            { label: 'Rejected Today', value: rejectedToday, color: '#ff6b6b', bg: 'rgba(255,107,107,0.1)', border: 'rgba(255,107,107,0.2)', icon: <XCircle style={{ width: 20, height: 20, color: '#ff6b6b' }} /> },
+          ].map((stat) => (
+            <div key={stat.label} style={{ padding: '18px 16px', borderRadius: 16, border: `1px solid ${stat.border}`, backgroundColor: stat.bg, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {stat.icon}
               </div>
-            )}
-
-            <div className="flex gap-3">
-              <Button
-                variant={reviewAction === 'approve' ? 'default' : 'outline'}
-                onClick={() => onSetReviewAction('approve')}
-                className="flex-1"
-              >
-                Approve
-              </Button>
-
-              <Button
-                variant={reviewAction === 'reject' ? 'destructive' : 'outline'}
-                onClick={() => onSetReviewAction('reject')}
-                className="flex-1"
-              >
-                Reject
-              </Button>
+              <div>
+                <p style={{ fontSize: 26, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
+                <p style={{ fontSize: 12, color: '#8FA3BF', marginTop: 3 }}>{stat.label}</p>
+              </div>
             </div>
+          ))}
+        </div>
 
-            {reviewAction && (
-              <Button
-                onClick={reviewAction === 'approve' ? onApprove : onReject}
-                disabled={submitting}
-                className="w-full"
-                variant={reviewAction === 'approve' ? 'default' : 'destructive'}
-              >
-                {submitting ? <Spinner className="mr-2 h-4 w-4" /> : null}
-                {submitting ? 'Processing...' : `Confirm ${reviewAction === 'approve' ? 'Approval' : 'Rejection'}`}
-              </Button>
+        <div style={{ borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
+          <div style={{ padding: '18px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Users style={{ width: 16, height: 16, color: '#00CEC9' }} />
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: 'white' }}>Pending KYC Submissions</h2>
+            {kycSubmissions.length > 0 && (
+              <span style={{ marginLeft: 'auto', fontSize: 12, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(255,193,7,0.15)', color: '#ffc107', fontWeight: 700, border: '1px solid rgba(255,193,7,0.3)' }}>
+                {kycSubmissions.length} pending
+              </span>
             )}
           </div>
-        </Card>
-      </div>
+
+          {kycSubmissions.length === 0 ? (
+            <div style={{ padding: '48px 20px', textAlign: 'center' }}>
+              <CheckCircle style={{ width: 44, height: 44, color: '#00B894', margin: '0 auto 12px' }} />
+              <p style={{ fontSize: 15, color: 'white', fontWeight: 600, marginBottom: 4 }}>All caught up!</p>
+              <p style={{ fontSize: 13, color: '#8FA3BF' }}>No pending KYC submissions at this time.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {kycSubmissions.map((kyc, i) => (
+                <div key={kyc.id} style={{ padding: '16px 20px', borderBottom: i < kycSubmissions.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none', display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '2px solid rgba(0,206,201,0.2)' }}>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: '#00CEC9' }}>{(kyc.full_name || 'U')[0].toUpperCase()}</span>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontWeight: 700, fontSize: 14, color: 'white', marginBottom: 3 }}>{kyc.full_name}</p>
+                    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, color: '#8FA3BF', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <MapPin style={{ width: 11, height: 11 }} /> {kyc.country}
+                      </span>
+                      <span style={{ fontSize: 12, color: '#8FA3BF', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Phone style={{ width: 11, height: 11 }} /> {kyc.phone_number}
+                      </span>
+                      <span style={{ fontSize: 12, color: '#8FA3BF', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Clock style={{ width: 11, height: 11 }} /> {new Date(kyc.submitted_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, backgroundColor: 'rgba(255,193,7,0.15)', color: '#ffc107', fontWeight: 600, border: '1px solid rgba(255,193,7,0.3)', flexShrink: 0 }}>
+                    Pending
+                  </span>
+                  <button onClick={() => { setSelectedKYC(kyc); setReviewAction(null); setReviewNotes(''); setRejectionReason(''); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                    <Eye style={{ width: 14, height: 14 }} /> Review
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

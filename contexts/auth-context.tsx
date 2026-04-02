@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase-client';
 
@@ -34,25 +34,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loadUserFromStorage = async () => {
     try {
-      // Check custom JWT token first
       const token = localStorage.getItem('auth_token');
       const storedUser = localStorage.getItem('auth_user');
-
       if (token && storedUser) {
         const parsedUser = JSON.parse(storedUser);
-        // Fetch fresh user data from Supabase users table
+        setUser(parsedUser);
         const { data: freshUser } = await supabase
           .from('users')
           .select('*')
           .eq('id', parsedUser.id)
           .single();
-
         if (freshUser) {
           setUser(freshUser);
-          // Update stored user with fresh data
           localStorage.setItem('auth_user', JSON.stringify(freshUser));
-        } else {
-          setUser(parsedUser);
         }
         return true;
       }
@@ -114,8 +108,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 }
