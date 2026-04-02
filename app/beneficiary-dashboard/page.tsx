@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase-client';
 import {
   CheckCircle, Coins, LogOut, Edit2, Save, X,
-  Camera, Bell, ChevronRight, Award, Download, AlertCircle
+  Camera, Bell, ChevronRight, Award, Download, AlertCircle, Shield
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -69,7 +69,6 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
               <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#00CEC9', fontWeight: 700, margin: 0 }}>{memberId}</p>
             </div>
           </div>
-
           <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
             <img src={profileImage} alt={fullName} style={{ width: 72, height: 72, borderRadius: 10, objectFit: 'cover', border: '2px solid rgba(0,206,201,0.5)', flexShrink: 0 }} crossOrigin="anonymous" />
             <div style={{ flex: 1 }}>
@@ -80,7 +79,6 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
               {country && <p style={{ fontSize: 10, color: '#8FA3BF', margin: 0 }}>📍 {country}</p>}
             </div>
           </div>
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid rgba(0,206,201,0.2)', paddingTop: 10 }}>
             <div>
               <p style={{ fontSize: 8, color: 'rgba(207,250,254,0.5)', margin: '0 0 2px' }}>MEMBER SINCE</p>
@@ -100,7 +98,6 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
         </div>
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(to right, #00B894, #00CEC9)' }} />
       </div>
-
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <button onClick={downloadCard} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 24px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
           <Download style={{ width: 16, height: 16 }} />
@@ -121,7 +118,6 @@ export default function BeneficiaryDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'history'>('overview');
 
-  // Profile state — loaded from user object
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -132,10 +128,11 @@ export default function BeneficiaryDashboardPage() {
   const [saveMsg, setSaveMsg] = useState('');
   const [saveError, setSaveError] = useState('');
 
+  const isAdmin = user?.email?.toLowerCase() === 'dinfadashe@gmail.com';
+
   useEffect(() => {
     if (!authLoading) {
       if (!user) { router.push('/login'); return; }
-      // Populate profile from user object
       setFullName(user.full_name || '');
       setCountry(user.country || '');
       setPhone(user.phone || user.phone_number || '');
@@ -175,33 +172,15 @@ export default function BeneficiaryDashboardPage() {
     try {
       const ext = file.name.split('.').pop();
       const path = `profiles/${user.id}.${ext}`;
-
-      // Upload to Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(path, file, { upsert: true, contentType: file.type });
-
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type });
       if (uploadError) throw uploadError;
-
-      // Get public URL
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
       const url = urlData.publicUrl + '?t=' + Date.now();
-
-      // Save to users table
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ profile_picture: url, updated_at: new Date().toISOString() })
-        .eq('id', user.id);
-
+      const { error: updateError } = await supabase.from('users').update({ profile_picture: url, updated_at: new Date().toISOString() }).eq('id', user.id);
       if (updateError) throw updateError;
-
       setProfilePic(url);
-      // Update localStorage
       const stored = localStorage.getItem('auth_user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        localStorage.setItem('auth_user', JSON.stringify({ ...parsed, profile_picture: url }));
-      }
+      if (stored) localStorage.setItem('auth_user', JSON.stringify({ ...JSON.parse(stored), profile_picture: url }));
       await refreshUser();
       setSaveMsg('Profile picture updated!');
       setTimeout(() => setSaveMsg(''), 3000);
@@ -215,27 +194,11 @@ export default function BeneficiaryDashboardPage() {
     setSaving(true);
     setSaveError('');
     try {
-      const updates = {
-        full_name: fullName,
-        country,
-        phone,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from('users')
-        .update(updates)
-        .eq('id', user.id);
-
+      const updates = { full_name: fullName, country, phone, updated_at: new Date().toISOString() };
+      const { error } = await supabase.from('users').update(updates).eq('id', user.id);
       if (error) throw error;
-
-      // Update localStorage so data persists after signout/signin
       const stored = localStorage.getItem('auth_user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        localStorage.setItem('auth_user', JSON.stringify({ ...parsed, ...updates }));
-      }
-
+      if (stored) localStorage.setItem('auth_user', JSON.stringify({ ...JSON.parse(stored), ...updates }));
       await refreshUser();
       setEditing(false);
       setSaveMsg('Profile saved successfully!');
@@ -291,14 +254,25 @@ export default function BeneficiaryDashboardPage() {
 
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '24px 20px 60px', position: 'relative', zIndex: 10 }}>
 
-        {/* WELCOME */}
-        <div style={{ marginBottom: 20 }}>
-          <h1 style={{ fontSize: 'clamp(20px, 4vw, 28px)', fontWeight: 800, marginBottom: 4 }}>
-            Welcome, {fullName?.split(' ')[0] || 'Beneficiary'} 👋
-          </h1>
-          <p style={{ fontSize: 13, color: '#8FA3BF' }}>
-            {isActivated ? 'Your account is active. Monthly distributions begin 2027.' : 'Activate your account to start receiving tokens.'}
-          </p>
+        {/* WELCOME + ADMIN BUTTON */}
+        <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div>
+            <h1 style={{ fontSize: 'clamp(20px, 4vw, 28px)', fontWeight: 800, marginBottom: 4 }}>
+              Welcome, {fullName?.split(' ')[0] || 'Beneficiary'} 👋
+            </h1>
+            <p style={{ fontSize: 13, color: '#8FA3BF' }}>
+              {isActivated ? 'Your account is active. Monthly distributions begin 2027.' : 'Activate your account to start receiving tokens.'}
+            </p>
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() => router.push('/admin')}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 12, background: 'linear-gradient(to right, #6C3FC8, #9B59B6)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(108,63,200,0.4)', flexShrink: 0, whiteSpace: 'nowrap' }}
+            >
+              <Shield style={{ width: 15, height: 15 }} />
+              Admin Panel
+            </button>
+          )}
         </div>
 
         {/* ALERTS */}
@@ -339,8 +313,6 @@ export default function BeneficiaryDashboardPage() {
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* STATS */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               {[
                 { label: 'Current Balance', value: balance?.current_balance?.toLocaleString() || '0', sub: 'Charity Tokens' },
@@ -355,17 +327,7 @@ export default function BeneficiaryDashboardPage() {
               ))}
             </div>
 
-            {/* MEMBERSHIP CARD */}
-            <MembershipCard
-              userId={user?.id || ''}
-              fullName={fullName}
-              email={user?.email || ''}
-              profileImage={profilePic}
-              joinDate={user?.created_at || new Date().toISOString()}
-              country={country}
-              phone={phone}
-              isActivated={isActivated}
-            />
+            <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
 
             {/* BECOME A PHILANTHROPIST */}
             <div onClick={() => router.push('/philanthropist/kyc')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.3)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -381,14 +343,27 @@ export default function BeneficiaryDashboardPage() {
               <ChevronRight style={{ width: 18, height: 18, color: '#00CEC9', flexShrink: 0 }} />
             </div>
 
+            {/* ADMIN PANEL CARD — only for admin */}
+            {isAdmin && (
+              <div onClick={() => router.push('/admin')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(108,63,200,0.4)', background: 'linear-gradient(135deg, rgba(108,63,200,0.08) 0%, rgba(155,89,182,0.08) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(108,63,200,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Shield style={{ width: 22, height: 22, color: '#9B59B6' }} />
+                  </div>
+                  <div>
+                    <p style={{ fontWeight: 700, fontSize: 14, color: 'white', marginBottom: 3 }}>Admin Panel</p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF' }}>Manage KYC, philanthropists, distributions and platform settings.</p>
+                  </div>
+                </div>
+                <ChevronRight style={{ width: 18, height: 18, color: '#9B59B6', flexShrink: 0 }} />
+              </div>
+            )}
           </div>
         )}
 
         {/* ── PROFILE TAB ── */}
         {activeTab === 'profile' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* PROFILE PICTURE */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Profile Picture</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -410,7 +385,6 @@ export default function BeneficiaryDashboardPage() {
               </div>
             </div>
 
-            {/* PERSONAL INFO */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>Personal Information</p>
@@ -429,7 +403,6 @@ export default function BeneficiaryDashboardPage() {
                   </div>
                 )}
               </div>
-
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {[
                   { label: 'Full Name', value: fullName, setter: setFullName, placeholder: 'Enter your full name', type: 'text' },
@@ -439,13 +412,7 @@ export default function BeneficiaryDashboardPage() {
                   <div key={field.label}>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8FA3BF', marginBottom: 6 }}>{field.label}</label>
                     {editing ? (
-                      <input
-                        type={field.type}
-                        value={field.value}
-                        onChange={(e) => field.setter(e.target.value)}
-                        placeholder={field.placeholder}
-                        style={{ width: '100%', padding: '11px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.3)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-                      />
+                      <input type={field.type} value={field.value} onChange={(e) => field.setter(e.target.value)} placeholder={field.placeholder} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.3)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
                     ) : (
                       <p style={{ fontSize: 14, color: field.value ? 'white' : '#4A5568', padding: '11px 14px', borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', margin: 0 }}>
                         {field.value || `No ${field.label.toLowerCase()} set`}
@@ -453,7 +420,6 @@ export default function BeneficiaryDashboardPage() {
                     )}
                   </div>
                 ))}
-
                 <div>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8FA3BF', marginBottom: 6 }}>Email Address</label>
                   <p style={{ fontSize: 14, color: '#4A5568', padding: '11px 14px', borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', margin: 0 }}>
@@ -463,22 +429,11 @@ export default function BeneficiaryDashboardPage() {
               </div>
             </div>
 
-            {/* MEMBERSHIP CARD PREVIEW */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Your Membership ID Card</p>
-              <MembershipCard
-                userId={user?.id || ''}
-                fullName={fullName}
-                email={user?.email || ''}
-                profileImage={profilePic}
-                joinDate={user?.created_at || new Date().toISOString()}
-                country={country}
-                phone={phone}
-                isActivated={isActivated}
-              />
+              <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
             </div>
 
-            {/* BECOME A PHILANTHROPIST */}
             <div onClick={() => router.push('/philanthropist/kyc')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.3)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -491,7 +446,6 @@ export default function BeneficiaryDashboardPage() {
               </div>
               <ChevronRight style={{ width: 18, height: 18, color: '#00CEC9', flexShrink: 0 }} />
             </div>
-
           </div>
         )}
 

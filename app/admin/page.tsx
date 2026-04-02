@@ -1,218 +1,218 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Spinner } from '@/components/ui/spinner';
 import { supabase, logAdminAction, deletePhilanthropist } from '@/lib/supabase-client';
 import { useAuth } from '@/contexts/auth-context';
 import Link from 'next/link';
+import Image from 'next/image';
+import {
+  Users, Shield, Clock, Coins, LogOut, X, Trash2,
+  ChevronRight, BarChart3, AlertCircle, Eye
+} from 'lucide-react';
 
 export default function AdminMainDashboardPage() {
   const router = useRouter();
   const { user, loading: authLoading, signOut } = useAuth();
   const [stats, setStats] = useState({
-    total_beneficiaries: 0,
-    active_beneficiaries: 0,
-    total_philanthropists: 0,
-    approved_philanthropists: 0,
-    pending_kyc: 0,
-    total_tokens_distributed: 0,
+    total_beneficiaries: 0, active_beneficiaries: 0,
+    total_philanthropists: 0, approved_philanthropists: 0,
+    pending_kyc: 0, total_tokens_distributed: 0,
   });
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    if (!authLoading && user?.role !== 'admin') {
-      router.push('/');
-      return;
-    }
-
-    if (user?.id) {
-      loadDashboard();
-    }
+    if (!authLoading && user?.role !== 'admin') { router.push('/'); return; }
+    if (user?.id) loadDashboard();
   }, [user, authLoading, router]);
 
   const loadDashboard = async () => {
     try {
       setLoading(true);
-
-      // Get all users
-      const { data: allUsers } = await supabase.from('users').select('*');
+      const { data: allUsers } = await supabase.from('users').select('*').order('created_at', { ascending: false });
       setUsers(allUsers || []);
-
-      // Get beneficiary stats
-      const { data: beneficiaries, count: benCount } = await supabase
-        .from('beneficiaries')
-        .select('*', { count: 'exact' });
-
+      const { data: beneficiaries, count: benCount } = await supabase.from('beneficiaries').select('*', { count: 'exact' });
       const activeBeneficiaries = beneficiaries?.filter((b) => b.is_activated).length || 0;
-
-      // Get philanthropist stats
-      const { data: philanthropists, count: philCount } = await supabase
-        .from('philanthropists')
-        .select('*', { count: 'exact' });
-
+      const { data: philanthropists, count: philCount } = await supabase.from('philanthropists').select('*', { count: 'exact' });
       const approvedPhil = philanthropists?.filter((p) => p.kyc_status === 'approved').length || 0;
       const pendingKyc = philanthropists?.filter((p) => p.kyc_status === 'submitted').length || 0;
-
-      // Get token distribution stats
-      const { data: distributions } = await supabase
-        .from('token_transactions')
-        .select('amount')
-        .eq('transaction_type', 'distribution');
-
+      const { data: distributions } = await supabase.from('token_transactions').select('amount').eq('transaction_type', 'distribution');
       const totalDistributed = distributions?.reduce((sum, d) => sum + d.amount, 0) || 0;
-
-      setStats({
-        total_beneficiaries: benCount || 0,
-        active_beneficiaries: activeBeneficiaries,
-        total_philanthropists: philCount || 0,
-        approved_philanthropists: approvedPhil,
-        pending_kyc: pendingKyc,
-        total_tokens_distributed: totalDistributed,
-      });
-    } catch (error) {
-      console.error('Error loading dashboard:', error);
-    } finally {
-      setLoading(false);
-    }
+      setStats({ total_beneficiaries: benCount || 0, active_beneficiaries: activeBeneficiaries, total_philanthropists: philCount || 0, approved_philanthropists: approvedPhil, pending_kyc: pendingKyc, total_tokens_distributed: totalDistributed });
+    } catch (error) { console.error('Error loading dashboard:', error); }
+    finally { setLoading(false); }
   };
 
   const handleDeleteUser = async () => {
     if (!selectedUser || !user?.id) return;
-
     try {
       await deletePhilanthropist(selectedUser.id, user.id, 'Admin deletion');
-      setSelectedUser(null);
-      setConfirmDelete(false);
+      setSelectedUser(null); setConfirmDelete(false);
       await loadDashboard();
-    } catch (error: any) {
-      console.error('Error deleting user:', error);
-      alert('Failed to delete user: ' + error.message);
-    }
+    } catch (error: any) { alert('Failed to delete user: ' + error.message); }
   };
+
+  const filteredUsers = users.filter((u) =>
+    (u.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.role || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Spinner />
+      <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 48, height: 48, border: '3px solid rgba(0,206,201,0.3)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
+          <p style={{ color: '#8FA3BF', fontSize: 14 }}>Loading admin dashboard...</p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-            <p className="text-muted-foreground">Platform Management</p>
-          </div>
-          <Button variant="outline" onClick={signOut}>
-            Sign Out
-          </Button>
-        </div>
+    <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif' }}>
 
-        {/* Stats Grid */}
-        <div className="grid md:grid-cols-3 gap-4 mb-8">
-          <Card className="p-6 bg-blue-50 dark:bg-blue-950 border-blue-200">
-            <p className="text-sm text-muted-foreground mb-2">Total Beneficiaries</p>
-            <p className="text-4xl font-bold">{stats.total_beneficiaries.toLocaleString()}</p>
-            <p className="text-xs text-muted-foreground mt-2">
-              {stats.active_beneficiaries} active
-            </p>
-          </Card>
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 800, height: 800, background: 'radial-gradient(circle, rgba(0,206,201,0.04) 0%, transparent 70%)', borderRadius: '50%' }} />
+      </div>
 
-          <Card className="p-6 bg-green-50 dark:bg-green-950 border-green-200">
-            <p className="text-sm text-muted-foreground mb-2">Philanthropists</p>
-            <p className="text-4xl font-bold">{stats.total_philanthropists}</p>
-            <p className="text-xs text-muted-foreground mt-2">
-              {stats.approved_philanthropists} verified
-            </p>
-          </Card>
-
-          <Card className="p-6 bg-purple-50 dark:bg-purple-950 border-purple-200">
-            <p className="text-sm text-muted-foreground mb-2">Pending KYC</p>
-            <p className="text-4xl font-bold">{stats.pending_kyc}</p>
-            <p className="text-xs text-muted-foreground mt-2">Reviews needed</p>
-          </Card>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-4 mb-8">
-          <Card className="p-6">
-            <p className="text-sm text-muted-foreground mb-2">Tokens Distributed</p>
-            <p className="text-4xl font-bold">{stats.total_tokens_distributed.toLocaleString()}</p>
-            <p className="text-xs text-muted-foreground mt-2">All time</p>
-          </Card>
-
-          <Card className="p-6">
-            <p className="text-sm text-muted-foreground mb-2">Quick Actions</p>
-            <div className="space-x-2">
-              <Link href="/admin/kyc-review">
-                <Button size="sm" variant="default">
-                  Review KYC
-                </Button>
-              </Link>
-              <Link href="/admin/distributions">
-                <Button size="sm" variant="outline">
-                  Manage Distributions
-                </Button>
-              </Link>
+      <header style={{ position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(10,22,40,0.95)', backdropFilter: 'blur(12px)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Image src="/Charity token logo.jpg" alt="Charity Token" width={36} height={36} style={{ borderRadius: 9 }} />
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 700, color: 'white', margin: 0 }}>Charity Token</p>
+              <p style={{ fontSize: 10, color: '#8FA3BF', margin: 0, letterSpacing: 0.5 }}>ADMIN CONSOLE</p>
             </div>
-          </Card>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 999, backgroundColor: 'rgba(0,206,201,0.1)', border: '1px solid rgba(0,206,201,0.2)' }}>
+              <Shield style={{ width: 14, height: 14, color: '#00CEC9' }} />
+              <span style={{ fontSize: 12, color: '#00CEC9', fontWeight: 600 }}>{user?.full_name || user?.email}</span>
+            </div>
+            <button onClick={signOut} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', color: '#8FA3BF', background: 'transparent', cursor: 'pointer' }}>
+              <LogOut style={{ width: 14, height: 14 }} /> Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 24px 60px', position: 'relative', zIndex: 10 }}>
+
+        <div style={{ marginBottom: 28 }}>
+          <p style={{ fontSize: 11, color: '#8FA3BF', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase' }}>Platform Management</p>
+          <h1 style={{ fontSize: 32, fontWeight: 800, color: 'white', margin: 0 }}>Admin Dashboard</h1>
+          <p style={{ fontSize: 13, color: '#8FA3BF', marginTop: 6 }}>Monitor platform activity, manage users, and review KYC submissions</p>
         </div>
 
-        {/* Users Management */}
-        <Card className="p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4">Users Management</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+          {[
+            { label: 'Total Beneficiaries', value: stats.total_beneficiaries.toLocaleString(), sub: stats.active_beneficiaries + ' active', icon: <Users style={{ width: 20, height: 20, color: '#00CEC9' }} />, color: '#00CEC9', bg: 'rgba(0,206,201,0.1)' },
+            { label: 'Philanthropists', value: stats.total_philanthropists.toLocaleString(), sub: stats.approved_philanthropists + ' verified', icon: <Shield style={{ width: 20, height: 20, color: '#00B894' }} />, color: '#00B894', bg: 'rgba(0,184,148,0.1)' },
+            { label: 'Pending KYC', value: stats.pending_kyc.toLocaleString(), sub: 'Reviews needed', icon: <Clock style={{ width: 20, height: 20, color: '#ffc107' }} />, color: '#ffc107', bg: 'rgba(255,193,7,0.1)' },
+            { label: 'Tokens Distributed', value: stats.total_tokens_distributed.toLocaleString(), sub: 'All time', icon: <Coins style={{ width: 20, height: 20, color: '#67e8f9' }} />, color: '#67e8f9', bg: 'rgba(103,232,249,0.1)' },
+          ].map((s) => (
+            <div key={s.label} style={{ padding: '20px', borderRadius: 18, border: '1px solid rgba(0,206,201,0.12)', backgroundColor: 'rgba(255,255,255,0.03)', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: 16, right: 16, width: 40, height: 40, borderRadius: 11, backgroundColor: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {s.icon}
+              </div>
+              <p style={{ fontSize: 11, color: '#8FA3BF', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.label}</p>
+              <p style={{ fontSize: 30, fontWeight: 800, color: s.color, margin: '0 0 4px', lineHeight: 1 }}>{s.value}</p>
+              <p style={{ fontSize: 11, color: '#4A5568', margin: 0 }}>{s.sub}</p>
+            </div>
+          ))}
+        </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+          <Link href="/admin/kyc-review" style={{ textDecoration: 'none' }}>
+            <div style={{ padding: '20px 24px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.25)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ width: 46, height: 46, borderRadius: 13, backgroundColor: 'rgba(0,206,201,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Shield style={{ width: 22, height: 22, color: '#00CEC9' }} />
+                </div>
+                <div>
+                  <p style={{ fontWeight: 700, fontSize: 15, color: 'white', margin: '0 0 3px' }}>Review KYC Submissions</p>
+                  <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{stats.pending_kyc} pending reviews</p>
+                </div>
+              </div>
+              <ChevronRight style={{ width: 20, height: 20, color: '#00CEC9' }} />
+            </div>
+          </Link>
+
+          <Link href="/admin/distributions" style={{ textDecoration: 'none' }}>
+            <div style={{ padding: '20px 24px', borderRadius: 16, border: '1px solid rgba(0,184,148,0.25)', background: 'linear-gradient(135deg, rgba(0,184,148,0.06) 0%, rgba(103,232,249,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ width: 46, height: 46, borderRadius: 13, backgroundColor: 'rgba(0,184,148,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <BarChart3 style={{ width: 22, height: 22, color: '#00B894' }} />
+                </div>
+                <div>
+                  <p style={{ fontWeight: 700, fontSize: 15, color: 'white', margin: '0 0 3px' }}>Manage Distributions</p>
+                  <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>Schedule and process token distributions</p>
+                </div>
+              </div>
+              <ChevronRight style={{ width: 20, height: 20, color: '#00B894' }} />
+            </div>
+          </Link>
+        </div>
+
+        <div style={{ padding: '24px', borderRadius: 20, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.02)', marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 4, height: 18, backgroundColor: '#00CEC9', borderRadius: 2, display: 'inline-block' }} />
+                Users Management
+              </p>
+              <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{users.length} total users registered</p>
+            </div>
+            <input
+              placeholder="Search by name, email or role..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ padding: '10px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', width: 260 }}
+            />
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 px-4">Name</th>
-                  <th className="text-left py-2 px-4">Email</th>
-                  <th className="text-left py-2 px-4">Role</th>
-                  <th className="text-left py-2 px-4">Status</th>
-                  <th className="text-left py-2 px-4">Joined</th>
-                  <th className="text-left py-2 px-4">Action</th>
+                <tr style={{ borderBottom: '1px solid rgba(0,206,201,0.15)' }}>
+                  {['Name', 'Email', 'Role', 'Status', 'Joined', 'Action'].map((h) => (
+                    <th key={h} style={{ textAlign: 'left', paddingBottom: 12, color: '#8FA3BF', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, paddingRight: 16 }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {users.slice(0, 20).map((u) => (
-                  <tr key={u.id} className="border-b hover:bg-muted">
-                    <td className="py-3 px-4">{u.full_name}</td>
-                    <td className="py-3 px-4 font-mono text-sm">{u.email}</td>
-                    <td className="py-3 px-4 capitalize">{u.role}</td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-medium ${
-                          u.status === 'active'
-                            ? 'bg-green-100 text-green-800'
-                            : u.status === 'suspended'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-yellow-100 text-yellow-800'
-                        }`}
-                      >
-                        {u.status}
+                {filteredUsers.slice(0, 20).map((u) => (
+                  <tr key={u.id} style={{ borderBottom: '1px solid rgba(0,206,201,0.06)' }}>
+                    <td style={{ padding: '14px 16px 14px 0', color: 'white', fontWeight: 500 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid rgba(0,206,201,0.2)' }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#00CEC9' }}>{(u.full_name || u.email || 'U')[0].toUpperCase()}</span>
+                        </div>
+                        <span>{u.full_name || 'No name'}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '14px 16px 14px 0', color: '#8FA3BF', fontFamily: 'monospace', fontSize: 12 }}>{u.email}</td>
+                    <td style={{ padding: '14px 16px 14px 0' }}>
+                      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, backgroundColor: u.role === 'admin' ? 'rgba(103,232,249,0.15)' : u.role === 'philanthropist' ? 'rgba(0,184,148,0.15)' : 'rgba(0,206,201,0.15)', color: u.role === 'admin' ? '#67e8f9' : u.role === 'philanthropist' ? '#00B894' : '#00CEC9', border: '1px solid ' + (u.role === 'admin' ? 'rgba(103,232,249,0.3)' : u.role === 'philanthropist' ? 'rgba(0,184,148,0.3)' : 'rgba(0,206,201,0.3)'), textTransform: 'capitalize' }}>
+                        {u.role}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-sm text-muted-foreground">
-                      {new Date(u.created_at).toLocaleDateString()}
+                    <td style={{ padding: '14px 16px 14px 0' }}>
+                      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, backgroundColor: u.is_active ? 'rgba(0,184,148,0.15)' : 'rgba(255,193,7,0.15)', color: u.is_active ? '#00B894' : '#ffc107', border: '1px solid ' + (u.is_active ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)') }}>
+                        {u.is_active ? 'Active' : 'Pending'}
+                      </span>
                     </td>
-                    <td className="py-3 px-4">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSelectedUser(u)}
-                      >
-                        View
-                      </Button>
+                    <td style={{ padding: '14px 16px 14px 0', color: '#8FA3BF' }}>{new Date(u.created_at).toLocaleDateString()}</td>
+                    <td style={{ padding: '14px 0' }}>
+                      <button onClick={() => { setSelectedUser(u); setConfirmDelete(false); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(0,206,201,0.3)', backgroundColor: 'transparent', color: '#00CEC9', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                        <Eye style={{ width: 13, height: 13 }} /> View
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -220,94 +220,90 @@ export default function AdminMainDashboardPage() {
             </table>
           </div>
 
-          {users.length > 20 && (
-            <p className="text-sm text-muted-foreground mt-4">
-              Showing 20 of {users.length} users
-            </p>
+          {filteredUsers.length > 20 && (
+            <p style={{ fontSize: 12, color: '#8FA3BF', marginTop: 16, textAlign: 'center' }}>Showing 20 of {filteredUsers.length} users</p>
           )}
-        </Card>
+          {filteredUsers.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <p style={{ color: '#8FA3BF', fontSize: 14 }}>No users match your search.</p>
+            </div>
+          )}
+        </div>
 
-        {/* Admin Logs */}
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">Recent Actions</h2>
-          <p className="text-sm text-muted-foreground text-center py-8">
-            Admin action logs will appear here
+        <div style={{ padding: '24px', borderRadius: 20, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.02)' }}>
+          <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 4, height: 18, backgroundColor: '#67e8f9', borderRadius: 2, display: 'inline-block' }} />
+            Recent Admin Actions
           </p>
-        </Card>
-      </div>
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <BarChart3 style={{ width: 40, height: 40, color: '#4A5568', margin: '0 auto 12px' }} />
+            <p style={{ fontSize: 14, color: '#8FA3BF' }}>Admin action logs will appear here</p>
+          </div>
+        </div>
 
-      {/* User Detail Modal */}
+      </main>
+
       {selectedUser && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-md">
-            <div className="p-6">
-              <h2 className="text-xl font-semibold mb-4">User Details</h2>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50, backdropFilter: 'blur(4px)' }}>
+          <div style={{ width: '100%', maxWidth: 460, backgroundColor: '#0F1F35', border: '1px solid rgba(0,206,201,0.2)', borderRadius: 20, padding: 28, boxShadow: '0 40px 80px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'white', margin: 0 }}>User Details</h2>
+              <button onClick={() => { setSelectedUser(null); setConfirmDelete(false); }} style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.06)', border: 'none', color: '#8FA3BF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <X style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
 
-              <div className="space-y-3 mb-6">
-                <div>
-                  <p className="text-sm text-muted-foreground">Name</p>
-                  <p className="font-medium">{selectedUser.full_name}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24, padding: '16px', borderRadius: 14, backgroundColor: 'rgba(0,206,201,0.04)', border: '1px solid rgba(0,206,201,0.1)' }}>
+              <div style={{ width: 52, height: 52, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(0,206,201,0.3)', flexShrink: 0 }}>
+                <span style={{ fontSize: 22, fontWeight: 800, color: '#00CEC9' }}>{(selectedUser.full_name || selectedUser.email || 'U')[0].toUpperCase()}</span>
+              </div>
+              <div>
+                <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 4px' }}>{selectedUser.full_name || 'No name'}</p>
+                <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{selectedUser.email}</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+              {[
+                { label: 'Role', value: selectedUser.role, capitalize: true },
+                { label: 'Status', value: selectedUser.is_active ? 'Active' : 'Pending' },
+                { label: 'Country', value: selectedUser.country || 'Not specified' },
+                { label: 'Joined', value: new Date(selectedUser.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) },
+                { label: 'User ID', value: selectedUser.id?.slice(0, 16) + '...' },
+              ].map((item) => (
+                <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                  <span style={{ fontSize: 12, color: '#8FA3BF', fontWeight: 600 }}>{item.label}</span>
+                  <span style={{ fontSize: 13, color: 'white', fontWeight: 500, textTransform: item.capitalize ? 'capitalize' : 'none' }}>{item.value}</span>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Email</p>
-                  <p className="font-medium">{selectedUser.email}</p>
+              ))}
+            </div>
+
+            {confirmDelete ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 12 }}>
+                  <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0, marginTop: 1 }} />
+                  <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0 }}>This action cannot be undone. Are you sure you want to delete this user?</p>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Role</p>
-                  <p className="font-medium capitalize">{selectedUser.role}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Status</p>
-                  <p className="font-medium capitalize">{selectedUser.status}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Country</p>
-                  <p className="font-medium">{selectedUser.country || 'N/A'}</p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={handleDeleteUser} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: '#ff6b6b', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
+                    Confirm Delete
+                  </button>
+                  <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'transparent', color: '#8FA3BF', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
                 </div>
               </div>
-
-              {confirmDelete ? (
-                <div className="space-y-3">
-                  <p className="text-sm text-destructive font-medium">
-                    Are you sure you want to delete this user? This action cannot be undone.
-                  </p>
-                  <div className="flex gap-3">
-                    <Button
-                      variant="destructive"
-                      className="flex-1"
-                      onClick={handleDeleteUser}
-                    >
-                      Confirm Delete
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => setConfirmDelete(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-3">
-                  <Button
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    Delete User
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setSelectedUser(null)}
-                  >
-                    Close
-                  </Button>
-                </div>
-              )}
-            </div>
-          </Card>
+            ) : (
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setConfirmDelete(true)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'rgba(255,107,107,0.1)', color: '#ff6b6b', fontWeight: 700, fontSize: 14, border: '1px solid rgba(255,107,107,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <Trash2 style={{ width: 15, height: 15 }} /> Delete User
+                </button>
+                <button onClick={() => setSelectedUser(null)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'transparent', color: '#8FA3BF', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
