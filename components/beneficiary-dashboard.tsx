@@ -17,7 +17,7 @@ export function BeneficiaryActivationFlow() {
   const [copied, setCopied] = useState(false);
   const [isPiBrowser, setIsPiBrowser] = useState(false);
 
-  const walletAddress = '0x1234567890abcdef';
+ const walletAddress = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
 
   useEffect(() => {
     const ua = navigator.userAgent || '';
