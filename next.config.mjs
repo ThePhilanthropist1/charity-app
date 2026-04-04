@@ -20,6 +20,12 @@ const nextConfig = {
     maxInactiveAge: 60 * 1000,
     pagesBufferLength: 5,
   },
+  rewrites: async () => [
+    {
+      source: '/validation-key.txt',
+      destination: '/api/validation-key',
+    },
+  ],
   headers: async () => [
     {
       source: '/:path*',
