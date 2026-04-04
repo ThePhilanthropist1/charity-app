@@ -7,7 +7,7 @@ const YOUR_WALLET = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e'.toLowerCase();
 const USDT_CONTRACT = '0x55d398326f99059fF775485246999027B3197955'.toLowerCase();
 const MIN_USDT_AMOUNT = 1.0;
 const BSCSCAN_API_KEY = process.env.BSCSCAN_API_KEY || '';
-const PI_API_KEY = process.env.PI_API_KEY || '4p78ymix57zoansuygpf7ukrlyaswxuzpzpekrpvesd0clg9nh0bensvob5hx9uv';
+const PI_API_KEY = process.env.PI_API_KEY || '';
 const PI_API_BASE = 'https://api.minepi.com';
 
 // BSC RPC endpoint — no API key needed, always available
