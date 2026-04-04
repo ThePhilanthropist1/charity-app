@@ -5,13 +5,18 @@ import type { ApiResponse } from '@/lib/types';
 
 const YOUR_WALLET = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e'.toLowerCase();
 const USDT_CONTRACT = '0x55d398326f99059fF775485246999027B3197955'.toLowerCase();
-const MIN_USDT_AMOUNT = 1.0;
+const MIN_USDT_AMOUNT = 0.9; // slightly below 1 to handle rounding/fees
 const BSCSCAN_API_KEY = process.env.BSCSCAN_API_KEY || '';
 const PI_API_KEY = process.env.PI_API_KEY || '';
 const PI_API_BASE = 'https://api.minepi.com';
 
-// BSC RPC endpoint — no API key needed, always available
-const BSC_RPC = 'https://bsc-dataseed1.binance.org/';
+// Multiple BSC RPC endpoints for redundancy
+const BSC_RPCS = [
+  'https://bsc-dataseed1.binance.org/',
+  'https://bsc-dataseed2.binance.org/',
+  'https://bsc-dataseed1.defibit.io/',
+  'https://bsc-dataseed1.ninicoin.io/',
+];
 
 // ── Pi helpers ────────────────────────────────────────────────────────────────
 
@@ -50,87 +55,105 @@ async function completePiPayment(paymentId: string, txid: string): Promise<{ suc
   }
 }
 
-// ── BSC RPC verification (no API key needed) ──────────────────────────────────
+// ── BSC RPC helper ────────────────────────────────────────────────────────────
 
 async function rpcCall(method: string, params: any[]): Promise<any> {
-  const res = await fetch(BSC_RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  });
-  const data = await res.json();
-  return data.result;
+  for (const rpc of BSC_RPCS) {
+    try {
+      const res = await fetch(rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      });
+      const data = await res.json();
+      if (data.result !== undefined) return data.result;
+    } catch (e) {
+      console.error(`RPC ${rpc} failed:`, e);
+    }
+  }
+  return null;
 }
 
-async function verifyBSCTransactionViaRPC(txHash: string): Promise<{
+// ── RPC-based verification (no API key needed) ────────────────────────────────
+
+async function verifyViaRPC(txHash: string): Promise<{
   valid: boolean; error?: string; amount?: number; from?: string;
 }> {
   try {
-    // Get transaction receipt via RPC
+    console.log('Verifying via RPC:', txHash);
+
     const receipt = await rpcCall('eth_getTransactionReceipt', [txHash]);
+    console.log('RPC receipt status:', receipt?.status);
 
     if (!receipt) {
-      return { valid: false, error: 'Transaction not found. Please check the hash and ensure the transaction is confirmed.' };
+      return { valid: false, error: 'Transaction not found on blockchain. Please check the hash is correct and the transaction is confirmed.' };
     }
 
     if (receipt.status !== '0x1') {
-      return { valid: false, error: 'Transaction failed on the blockchain. Please use a successful transaction.' };
+      return { valid: false, error: 'This transaction failed on the blockchain. Please use a successful transaction.' };
     }
 
-    // USDT Transfer event topic: Transfer(address,address,uint256)
+    // ERC-20/BEP-20 Transfer event topic
     const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
-    // Find a Transfer log from the USDT contract going to our wallet
-    const logs = receipt.logs || [];
-    let transferAmount: number | null = null;
-    let fromAddress: string | null = null;
+    const logs: any[] = receipt.logs || [];
+    console.log('Total logs in tx:', logs.length);
 
     for (const log of logs) {
-      if (
-        log.address?.toLowerCase() === USDT_CONTRACT &&
-        log.topics?.[0]?.toLowerCase() === TRANSFER_TOPIC &&
-        log.topics?.length >= 3
-      ) {
-        // topics[2] = to address (padded to 32 bytes)
-        const toAddress = '0x' + log.topics[2].slice(26).toLowerCase();
+      const logAddress = log.address?.toLowerCase();
+      const topic0 = log.topics?.[0]?.toLowerCase();
+
+      if (logAddress === USDT_CONTRACT && topic0 === TRANSFER_TOPIC && log.topics?.length >= 3) {
+        // Decode to address from topics[2] (padded 32 bytes)
+        const toRaw = log.topics[2];
+        const toAddress = ('0x' + toRaw.slice(26)).toLowerCase();
+        console.log('Found USDT transfer to:', toAddress, 'expected:', YOUR_WALLET);
 
         if (toAddress === YOUR_WALLET) {
-          // data = amount in hex
-          const rawAmount = BigInt(log.data);
-          // USDT on BSC has 18 decimals
-          const amount = Number(rawAmount) / 1e18;
-          fromAddress = '0x' + log.topics[1].slice(26).toLowerCase();
-          transferAmount = amount;
-          break;
+          const fromRaw = log.topics[1];
+          const fromAddress = ('0x' + fromRaw.slice(26)).toLowerCase();
+
+          // Parse amount — USDT BEP20 on BSC uses 18 decimals
+          const rawHex = log.data;
+          const rawBig = BigInt(rawHex);
+
+          // Try 18 decimals first (standard BSC USDT)
+          let amount = Number(rawBig) / 1e18;
+
+          // If amount looks wrong (too small), try 6 decimals (some USDT variants)
+          if (amount < 0.000001) {
+            amount = Number(rawBig) / 1e6;
+          }
+
+          console.log('Transfer amount:', amount, 'USDT');
+
+          if (amount < MIN_USDT_AMOUNT) {
+            return {
+              valid: false,
+              error: `Insufficient amount: ${amount.toFixed(4)} USDT sent. Minimum required: 1 USDT.`,
+            };
+          }
+
+          return { valid: true, amount, from: fromAddress };
         }
       }
     }
 
-    if (transferAmount === null) {
-      return {
-        valid: false,
-        error: 'No USDT transfer to our wallet found in this transaction. Please ensure you sent USDT (BEP20) to the correct wallet address.',
-      };
-    }
-
-    if (transferAmount < MIN_USDT_AMOUNT) {
-      return {
-        valid: false,
-        error: `Insufficient amount sent: ${transferAmount.toFixed(4)} USDT. Required: ${MIN_USDT_AMOUNT} USDT minimum.`,
-      };
-    }
-
-    return { valid: true, amount: transferAmount, from: fromAddress || undefined };
+    // If we reach here, no matching transfer found
+    return {
+      valid: false,
+      error: 'No USDT transfer to our wallet found in this transaction. Please ensure you sent USDT (BEP20) to: ' + YOUR_WALLET,
+    };
 
   } catch (err: any) {
     console.error('RPC verification error:', err);
-    return { valid: false, error: 'Blockchain verification failed. Please try again in a moment.' };
+    return { valid: false, error: 'Blockchain verification failed. Please try again.' };
   }
 }
 
-// ── BSCScan verification (uses API key, more detailed) ────────────────────────
+// ── BSCScan verification ──────────────────────────────────────────────────────
 
-async function verifyBSCTransactionViaScan(txHash: string): Promise<{
+async function verifyViaBSCScan(txHash: string): Promise<{
   valid: boolean; error?: string; amount?: number; from?: string;
 }> {
   try {
@@ -139,47 +162,49 @@ async function verifyBSCTransactionViaScan(txHash: string): Promise<{
       `https://api.bscscan.com/api?module=transaction&action=gettxreceiptstatus&txhash=${txHash}&apikey=${BSCSCAN_API_KEY}`
     );
     const receiptData = await receiptRes.json();
+    console.log('BSCScan receipt:', JSON.stringify(receiptData));
 
-    // If API key is missing or rate limited, fall back to RPC
-    if (receiptData.status === '0' && receiptData.message?.includes('rate limit')) {
-      console.log('BSCScan rate limited, falling back to RPC...');
-      return verifyBSCTransactionViaRPC(txHash);
+    // Rate limited or API error — fall back to RPC
+    if (receiptData.status === '0' || !receiptData.result?.status) {
+      console.log('BSCScan unavailable, falling back to RPC');
+      return verifyViaRPC(txHash);
     }
 
-    if (receiptData.result?.status !== '1') {
+    if (receiptData.result.status !== '1') {
       return { valid: false, error: 'Transaction failed or not yet confirmed. Please wait a few minutes and try again.' };
     }
 
-    // Get token transfer events
+    // Get token transfers
     const transferRes = await fetch(
-      `https://api.bscscan.com/api?module=account&action=tokentx&contractaddress=${USDT_CONTRACT}&address=${YOUR_WALLET}&txhash=${txHash}&apikey=${BSCSCAN_API_KEY}`
+      `https://api.bscscan.com/api?module=account&action=tokentx&contractaddress=${USDT_CONTRACT}&address=${YOUR_WALLET}&page=1&offset=10&apikey=${BSCSCAN_API_KEY}`
     );
     const transferData = await transferRes.json();
+    console.log('BSCScan token tx count:', transferData.result?.length);
 
     if (!transferData.result || transferData.result.length === 0) {
-      // Fall back to RPC which reads logs directly
-      return verifyBSCTransactionViaRPC(txHash);
+      return verifyViaRPC(txHash);
     }
 
+    // Find the specific tx
     const relevantTransfer = transferData.result.find((tx: any) =>
+      tx.hash?.toLowerCase() === txHash.toLowerCase() &&
       tx.to?.toLowerCase() === YOUR_WALLET &&
       tx.contractAddress?.toLowerCase() === USDT_CONTRACT
     );
 
     if (!relevantTransfer) {
-      return {
-        valid: false,
-        error: 'No USDT transfer to our wallet found in this transaction. Please check you sent to the correct address.',
-      };
+      // Not in recent transfers — try RPC
+      return verifyViaRPC(txHash);
     }
 
     const decimals = parseInt(relevantTransfer.tokenDecimal || '18');
     const amount = parseFloat(relevantTransfer.value) / Math.pow(10, decimals);
+    console.log('BSCScan amount:', amount);
 
     if (amount < MIN_USDT_AMOUNT) {
       return {
         valid: false,
-        error: `Insufficient amount. Sent: ${amount.toFixed(2)} USDT. Required: ${MIN_USDT_AMOUNT} USDT.`,
+        error: `Insufficient amount: ${amount.toFixed(4)} USDT sent. Minimum required: 1 USDT.`,
       };
     }
 
@@ -187,20 +212,18 @@ async function verifyBSCTransactionViaScan(txHash: string): Promise<{
 
   } catch (err) {
     console.error('BSCScan error, falling back to RPC:', err);
-    return verifyBSCTransactionViaRPC(txHash);
+    return verifyViaRPC(txHash);
   }
 }
 
-// Main verifier — tries BSCScan first, falls back to RPC
+// Main verifier
 async function verifyBSCTransaction(txHash: string): Promise<{
   valid: boolean; error?: string; amount?: number; from?: string;
 }> {
-  // If no API key, go straight to RPC
   if (!BSCSCAN_API_KEY) {
-    console.log('No BSCScan API key, using RPC directly...');
-    return verifyBSCTransactionViaRPC(txHash);
+    return verifyViaRPC(txHash);
   }
-  return verifyBSCTransactionViaScan(txHash);
+  return verifyViaBSCScan(txHash);
 }
 
 // ── Main route handler ────────────────────────────────────────────────────────
@@ -288,7 +311,6 @@ export async function POST(request: NextRequest) {
 
       const cleanHash = transaction_hash.trim().toLowerCase();
 
-      // Validate format
       if (!/^0x[a-f0-9]{64}$/.test(cleanHash)) {
         return NextResponse.json<ApiResponse<null>>(
           { success: false, error: 'Invalid transaction hash format. It must start with 0x followed by exactly 64 characters.' },
@@ -296,32 +318,33 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Check hash not already used (one-time use enforcement)
+      // One-time use enforcement
       const { supabase } = await import('@/lib/db');
       const { data: existingTx } = await (supabase as any)
         .from('beneficiary_activations')
-        .select('id, user_id')
+        .select('id')
         .eq('transaction_hash', cleanHash)
         .maybeSingle();
 
       if (existingTx) {
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'This transaction has already been used to activate an account. Each transaction can only be used once.' },
+          { success: false, error: 'This transaction has already been used to activate another account.' },
           { status: 409 }
         );
       }
 
-      // Verify on blockchain (BSCScan + RPC fallback)
+      // Verify on blockchain
       const verification = await verifyBSCTransaction(cleanHash);
+      console.log('Verification result:', JSON.stringify(verification));
 
       if (!verification.valid) {
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: verification.error || 'Transaction could not be verified on the blockchain.' },
+          { success: false, error: verification.error || 'Transaction could not be verified.' },
           { status: 400 }
         );
       }
 
-      // All good — activate account
+      // Activate account
       const activation = await createBeneficiaryActivation({
         user_id: userId,
         activation_method: 'wallet_transfer',
