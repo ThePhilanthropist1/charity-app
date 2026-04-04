@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Coins, Copy, CreditCard, Users, Info, TrendingUp, Clock, Zap } from 'lucide-react';
+import { AlertCircle, CheckCircle, Coins, Copy, CreditCard, Users, Info, TrendingUp, Clock, Zap, ExternalLink, Send, MessageCircle } from 'lucide-react';
 import { useTokenDistributions, useAuth } from '@/hooks/use-charity-api';
 import { ProfileUpload } from './profile-upload';
 import { MembershipCard } from './membership-card';
@@ -13,11 +13,10 @@ export function BeneficiaryActivationFlow() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [transactionHash, setTransactionHash] = useState('');
-  const [philanthropistUsername, setPhilanthropistUsername] = useState('');
   const [copied, setCopied] = useState(false);
   const [isPiBrowser, setIsPiBrowser] = useState(false);
 
- const walletAddress = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
+  const walletAddress = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
 
   useEffect(() => {
     const ua = navigator.userAgent || '';
@@ -74,18 +73,6 @@ export function BeneficiaryActivationFlow() {
     } finally { setLoading(false); }
   };
 
-  const handlePhilanthropistActivation = async () => {
-    if (!philanthropistUsername.trim()) { setError('Please enter philanthropist username'); return; }
-    setLoading(true); setError('');
-    try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/activation', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ action: 'philanthropist', activation_method: 'philanthropist', philanthropist_username: philanthropistUsername }) });
-      const result = await response.json();
-      if (result.success) setSuccess(true);
-      else setError(result.error || 'Activation failed');
-    } finally { setLoading(false); }
-  };
-
   if (success) {
     return (
       <div style={{ textAlign: 'center', padding: '48px 32px', backgroundColor: '#0F1F35', border: '1px solid rgba(0,184,148,0.3)', borderRadius: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
@@ -94,7 +81,7 @@ export function BeneficiaryActivationFlow() {
         </div>
         <h2 style={{ fontSize: 28, fontWeight: 800, color: 'white', marginBottom: 12 }}>Account Activated!</h2>
         <p style={{ fontSize: 14, color: '#8FA3BF', lineHeight: 1.8, marginBottom: 28 }}>Your account has been successfully activated.<br />You will receive 500 Charity Tokens monthly for 10 years.</p>
-        <button onClick={() => window.location.href = '/beneficiary/dashboard'} style={{ padding: '14px 36px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,206,201,0.3)' }}>
+        <button onClick={() => window.location.href = '/beneficiary-dashboard'} style={{ padding: '14px 36px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,206,201,0.3)' }}>
           Go to Dashboard
         </button>
       </div>
@@ -102,9 +89,9 @@ export function BeneficiaryActivationFlow() {
   }
 
   const methods = [
-    { id: 'pi', icon: <Coins style={{ width: 26, height: 26, color: '#00CEC9' }} />, bg: 'rgba(0,206,201,0.12)', title: 'Pi Network', amount: '6.0 Pi', desc: 'Pay with Pi - requires Pi Browser app' },
-    { id: 'wallet', icon: <CreditCard style={{ width: 26, height: 26, color: '#00B894' }} />, bg: 'rgba(0,184,148,0.12)', title: 'Wallet Transfer', amount: '1 USDT', desc: 'Send USDT to our wallet and verify' },
-    { id: 'philanthropist', icon: <Users style={{ width: 26, height: 26, color: '#67e8f9' }} />, bg: 'rgba(103,232,249,0.12)', title: 'Via Philanthropist', amount: '1 USDT', desc: 'Contact a regional philanthropist on Telegram' },
+    { id: 'pi', icon: <Coins style={{ width: 26, height: 26, color: '#00CEC9' }} />, bg: 'rgba(0,206,201,0.12)', title: 'Pi Network', amount: '6.0 Pi', desc: 'Pay with Pi — requires Pi Browser app' },
+    { id: 'wallet', icon: <CreditCard style={{ width: 26, height: 26, color: '#00B894' }} />, bg: 'rgba(0,184,148,0.12)', title: 'Wallet Transfer', amount: '1 USDT', desc: 'Send USDT (BEP20) to our wallet and verify' },
+    { id: 'philanthropist', icon: <Users style={{ width: 26, height: 26, color: '#67e8f9' }} />, bg: 'rgba(103,232,249,0.12)', title: 'Via Philanthropist', amount: '~$1 Fiat', desc: 'Pay a regional philanthropist in your local currency' },
   ];
 
   return (
@@ -140,6 +127,7 @@ export function BeneficiaryActivationFlow() {
             </div>
           </div>
 
+          {/* PI PAYMENT */}
           {method === 'pi' && m.id === 'pi' && (
             <div onClick={(e) => e.stopPropagation()}>
               {!isPiBrowser ? (
@@ -158,14 +146,18 @@ export function BeneficiaryActivationFlow() {
             </div>
           )}
 
+          {/* WALLET TRANSFER */}
           {method === 'wallet' && m.id === 'wallet' && (
             <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, fontWeight: 600 }}>Send exactly 1 USDT to:</p>
+              <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, fontWeight: 600 }}>Send exactly 1 USDT (BEP20) to:</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', backgroundColor: '#0A1628', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)' }}>
                 <code style={{ fontSize: 12, color: '#67e8f9', flex: 1, wordBreak: 'break-all' }}>{walletAddress}</code>
                 <button onClick={copyWallet} style={{ background: 'none', border: 'none', cursor: 'pointer', color: copied ? '#00B894' : '#67e8f9', flexShrink: 0, padding: 0 }}>
                   {copied ? <CheckCircle style={{ width: 16, height: 16 }} /> : <Copy style={{ width: 16, height: 16 }} />}
                 </button>
+              </div>
+              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(255,193,7,0.05)', borderRadius: 10, border: '1px solid rgba(255,193,7,0.15)' }}>
+                <p style={{ fontSize: 12, color: '#ffc107', margin: 0, lineHeight: 1.6 }}>⚠️ Only send on <strong>BNB Smart Chain (BEP20)</strong>. Sending on other networks will result in loss of funds.</p>
               </div>
               <input placeholder="Paste transaction hash here" value={transactionHash} onChange={(e) => setTransactionHash(e.target.value)} style={{ width: '100%', padding: '12px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
               <button onClick={handleWalletTransfer} disabled={loading} style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
@@ -174,15 +166,88 @@ export function BeneficiaryActivationFlow() {
             </div>
           )}
 
+          {/* VIA PHILANTHROPIST */}
           {method === 'philanthropist' && m.id === 'philanthropist' && (
-            <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ padding: '10px 14px', backgroundColor: 'rgba(0,206,201,0.04)', borderRadius: 10, border: '1px solid rgba(0,206,201,0.12)' }}>
-                <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.7, margin: 0 }}>Find your regional philanthropist on our <a href="https://t.me/CharityTokenProject" target="_blank" rel="noopener noreferrer" style={{ color: '#67e8f9', fontWeight: 600 }}>Telegram channel</a>, pay them 1 USDT, then enter their username below.</p>
+            <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+              {/* Step-by-step instructions */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+                {/* Step 1 */}
+                <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(0,206,201,0.04)', borderRadius: 12, border: '1px solid rgba(0,206,201,0.12)', alignItems: 'flex-start' }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #00CEC9, #00B894)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>1</div>
+                  <div>
+                    <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Find a Philanthropist in Your Region</p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: '0 0 10px', lineHeight: 1.6 }}>
+                      Join our Telegram group to find a verified philanthropist near you. Each philanthropist lists their region and payment details.
+                    </p>
+                    <a
+                      href="https://t.me/CharityTokenProject1"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, backgroundColor: 'rgba(0,136,204,0.15)', border: '1px solid rgba(0,136,204,0.3)', color: '#67e8f9', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}
+                    >
+                      <Send style={{ width: 13, height: 13 }} /> Open Telegram Group
+                      <ExternalLink style={{ width: 11, height: 11 }} />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(0,184,148,0.04)', borderRadius: 12, border: '1px solid rgba(0,184,148,0.12)', alignItems: 'flex-start' }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #00B894, #00CEC9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>2</div>
+                  <div>
+                    <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Send $1 Equivalent in Your Local Currency</p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
+                      Pay the philanthropist $1 USD equivalent using any local fiat method they accept (bank transfer, mobile money, cash, etc). The philanthropist's accepted payment methods are listed on Telegram.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Step 3 */}
+                <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(103,232,249,0.04)', borderRadius: 12, border: '1px solid rgba(103,232,249,0.12)', alignItems: 'flex-start' }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #67e8f9, #00CEC9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: '#0A1628' }}>3</div>
+                  <div>
+                    <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Message the Philanthropist on Telegram</p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
+                      Send a Telegram message to the philanthropist with your <strong style={{ color: 'white' }}>payment receipt</strong> and your <strong style={{ color: 'white' }}>registered email address</strong>. They will activate your account within <strong style={{ color: '#00B894' }}>24 hours</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Step 4 */}
+                <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(255,193,7,0.04)', borderRadius: 12, border: '1px solid rgba(255,193,7,0.12)', alignItems: 'flex-start' }}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #ffc107, #ff9800)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>4</div>
+                  <div>
+                    <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Wait for Activation Confirmation</p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
+                      Once the philanthropist activates your account, you will receive a confirmation. Log out and log back in to see your updated account status. Philanthropists are required to process all submissions within 24 hours.
+                    </p>
+                  </div>
+                </div>
+
               </div>
-              <input placeholder="Enter philanthropist username" value={philanthropistUsername} onChange={(e) => setPhilanthropistUsername(e.target.value)} style={{ width: '100%', padding: '12px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-              <button onClick={handlePhilanthropistActivation} disabled={loading} style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
-                {loading ? 'Processing...' : 'Submit'}
-              </button>
+
+              {/* Your email reminder */}
+              <div style={{ padding: '12px 16px', backgroundColor: 'rgba(0,206,201,0.06)', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <MessageCircle style={{ width: 15, height: 15, color: '#00CEC9', flexShrink: 0 }} />
+                <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
+                  Your registered email: <strong style={{ color: '#67e8f9' }}>{user?.email || 'your email'}</strong> — include this in your Telegram message to the philanthropist.
+                </p>
+              </div>
+
+              {/* CTA button */}
+              <a
+                href="https://t.me/CharityTokenProject1"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 14, textDecoration: 'none', boxSizing: 'border-box' }}
+              >
+                <Send style={{ width: 16, height: 16 }} />
+                Go to Telegram Group
+                <ExternalLink style={{ width: 14, height: 14 }} />
+              </a>
+
             </div>
           )}
         </div>
@@ -207,8 +272,6 @@ export function BeneficiaryDashboard() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-
-      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <p style={{ fontSize: 12, color: '#8FA3BF', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase' }}>Beneficiary Portal</p>
@@ -221,7 +284,6 @@ export function BeneficiaryDashboard() {
         </div>
       </div>
 
-      {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         {[
           { label: 'Total Received', value: totalTokens.toLocaleString(), sub: 'Charity Tokens', icon: <TrendingUp style={{ width: 18, height: 18, color: '#00CEC9' }} />, color: '#00CEC9' },
@@ -239,10 +301,7 @@ export function BeneficiaryDashboard() {
         ))}
       </div>
 
-      {/* Main content */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 24 }}>
-
-        {/* Left: Profile + ID Card */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div style={{ padding: '20px', borderRadius: 18, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: 'white', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -251,7 +310,6 @@ export function BeneficiaryDashboard() {
             </p>
             <ProfileUpload onProfileUpdate={(_, base64) => setProfileImage(base64)} currentImage={profileImage} />
           </div>
-
           <div style={{ padding: '20px', borderRadius: 18, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: 'white', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 4, height: 16, backgroundColor: '#00B894', borderRadius: 2, display: 'inline-block' }} />
@@ -261,7 +319,6 @@ export function BeneficiaryDashboard() {
           </div>
         </div>
 
-        {/* Right: Distribution History */}
         <div style={{ padding: '24px', borderRadius: 18, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <p style={{ fontSize: 15, fontWeight: 700, color: 'white', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -272,7 +329,6 @@ export function BeneficiaryDashboard() {
               {completedCount} completed
             </span>
           </div>
-
           {distributions.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '48px 20px' }}>
               <div style={{ width: 64, height: 64, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
