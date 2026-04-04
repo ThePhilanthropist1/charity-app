@@ -1,7 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { put } from '@vercel/blob';
+﻿import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth';
 import type { ApiResponse } from '@/lib/types';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +30,7 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const type = formData.get('type') as string; // 'government_id' or 'face_capture'
+    const type = formData.get('type') as string;
 
     if (!file) {
       return NextResponse.json<ApiResponse<null>>(
@@ -34,7 +39,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file size (10MB max)
     if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json<ApiResponse<null>>(
         { success: false, error: 'File too large (max 10MB)' },
@@ -42,33 +46,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
     if (!allowedTypes.includes(file.type)) {
       return NextResponse.json<ApiResponse<null>>(
-        { success: false, error: 'Invalid file type' },
+        { success: false, error: 'Invalid file type. Use JPG, PNG, WEBP or PDF.' },
         { status: 400 }
       );
     }
 
-    // Generate filename
-    const timestamp = Date.now();
-    const filename = `kyc/${userId}/${type}_${timestamp}.${file.type.split('/')[1]}`;
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = 'kyc/' + userId + '/' + type + '_' + Date.now() + '.' + ext;
 
-    // Upload to Vercel Blob
-    const blob = await put(filename, file, {
-      access: 'private',
-      addRandomSuffix: false,
-    });
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const { data, error } = await supabaseAdmin.storage
+      .from('kyc-documents')
+      .upload(filename, buffer, {
+        contentType: file.type,
+        upsert: true,
+      });
+
+    if (error) {
+      console.error('Supabase upload error:', error);
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'Failed to upload file: ' + error.message },
+        { status: 500 }
+      );
+    }
+
+    const { data: urlData } = supabaseAdmin.storage
+      .from('kyc-documents')
+      .getPublicUrl(filename);
 
     return NextResponse.json<ApiResponse<{ url: string; type: string }>>(
-      {
-        success: true,
-        data: {
-          url: blob.url,
-          type,
-        },
-      },
+      { success: true, data: { url: urlData.publicUrl, type } },
       { status: 201 }
     );
   } catch (error) {

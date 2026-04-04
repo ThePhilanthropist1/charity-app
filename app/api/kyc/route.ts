@@ -1,26 +1,24 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createKYCSubmission, getKYCSubmission, getPendingKYCSubmissions, approveKYCSubmission, rejectKYCSubmission } from '@/lib/db';
+﻿import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '@/lib/auth';
 import type { ApiResponse } from '@/lib/types';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
 
 export async function POST(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json<ApiResponse<null>>(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const token = authHeader.replace('Bearer ', '');
     const { userId, valid } = verifyToken(token);
-
     if (!valid) {
-      return NextResponse.json<ApiResponse<null>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Invalid token' }, { status: 401 });
     }
 
     const { action, government_id_type, government_id_url, face_capture_url } = await request.json();
@@ -28,31 +26,44 @@ export async function POST(request: NextRequest) {
     if (action === 'submit') {
       if (!government_id_type || !government_id_url || !face_capture_url) {
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Missing required fields' },
+          { success: false, error: 'Missing required fields: ID type, ID document, and face capture are all required' },
           { status: 400 }
         );
       }
 
-      // Check if already submitted
-      const existing = await getKYCSubmission(userId);
-      if (existing && existing.status === 'pending') {
+      // Check existing submission
+      const { data: existing } = await supabaseAdmin
+        .from('kyc_submissions')
+        .select('id, status')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (existing?.status === 'pending') {
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'KYC submission already pending' },
+          { success: false, error: 'You already have a pending KYC submission. Please wait for review.' },
           { status: 409 }
         );
       }
 
-      const submission = await createKYCSubmission({
-        user_id: userId,
-        government_id_type: government_id_type as any,
-        government_id_url,
-        face_capture_url,
-        status: 'pending',
-      });
+      const { data: submission, error } = await supabaseAdmin
+        .from('kyc_submissions')
+        .insert([{
+          user_id: userId,
+          government_id_type,
+          government_id_url,
+          face_capture_url,
+          status: 'pending',
+          submitted_at: new Date().toISOString(),
+        }])
+        .select()
+        .single();
 
-      if (!submission) {
+      if (error || !submission) {
+        console.error('KYC insert error:', error);
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Failed to create submission' },
+          { success: false, error: 'Failed to submit KYC: ' + (error?.message || 'Unknown error') },
           { status: 500 }
         );
       }
@@ -61,24 +72,27 @@ export async function POST(request: NextRequest) {
         { success: true, data: submission },
         { status: 201 }
       );
-    } else if (action === 'get') {
-      const submission = await getKYCSubmission(userId);
+    }
+
+    if (action === 'get') {
+      const { data: submission } = await supabaseAdmin
+        .from('kyc_submissions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
       return NextResponse.json<ApiResponse<typeof submission>>(
         { success: true, data: submission },
         { status: 200 }
       );
     }
 
-    return NextResponse.json<ApiResponse<null>>(
-      { success: false, error: 'Invalid action' },
-      { status: 400 }
-    );
+    return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Invalid action' }, { status: 400 });
   } catch (error) {
-    console.error('[v0] KYC API error:', error);
-    return NextResponse.json<ApiResponse<null>>(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
+    console.error('[v0] KYC POST error:', error);
+    return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -86,35 +100,46 @@ export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json<ApiResponse<null>>(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const token = authHeader.replace('Bearer ', '');
     const { userId, valid } = verifyToken(token);
-
     if (!valid) {
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Invalid token' }, { status: 401 });
+    }
+
+    // Verify admin
+    const { data: adminUser } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('id', userId)
+      .single();
+
+    if (adminUser?.role !== 'admin') {
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Admin access required' }, { status: 403 });
+    }
+
+    const { data: submissions, error } = await supabaseAdmin
+      .from('kyc_submissions')
+      .select('*, users(full_name, email, username, country, phone_number)')
+      .eq('status', 'pending')
+      .order('submitted_at', { ascending: true });
+
+    if (error) {
       return NextResponse.json<ApiResponse<null>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
+        { success: false, error: 'Failed to fetch submissions' },
+        { status: 500 }
       );
     }
 
-    // Get user to verify admin role (would need to fetch from DB in production)
-    const submissions = await getPendingKYCSubmissions();
-
     return NextResponse.json<ApiResponse<typeof submissions>>(
-      { success: true, data: submissions },
+      { success: true, data: submissions || [] },
       { status: 200 }
     );
   } catch (error) {
     console.error('[v0] KYC GET error:', error);
-    return NextResponse.json<ApiResponse<null>>(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -122,53 +147,128 @@ export async function PATCH(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json<ApiResponse<null>>(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const token = authHeader.replace('Bearer ', '');
     const { userId, valid } = verifyToken(token);
-
     if (!valid) {
-      return NextResponse.json<ApiResponse<null>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Invalid token' }, { status: 401 });
+    }
+
+    // Verify admin
+    const { data: adminUser } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('id', userId)
+      .single();
+
+    if (adminUser?.role !== 'admin') {
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Admin access required' }, { status: 403 });
     }
 
     const { action, submission_id, rejection_reason } = await request.json();
 
+    if (!submission_id) {
+      return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Submission ID required' }, { status: 400 });
+    }
+
     if (action === 'approve') {
-      const result = await approveKYCSubmission(submission_id, userId);
+      const { data: submission } = await supabaseAdmin
+        .from('kyc_submissions')
+        .select('user_id')
+        .eq('id', submission_id)
+        .single();
+
+      const { data: result, error } = await supabaseAdmin
+        .from('kyc_submissions')
+        .update({
+          status: 'approved',
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: userId,
+        })
+        .eq('id', submission_id)
+        .select()
+        .single();
+
+      if (error) {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'Failed to approve: ' + error.message },
+          { status: 500 }
+        );
+      }
+
+      // Update user role to philanthropist and activate
+      if (submission?.user_id) {
+        await supabaseAdmin
+          .from('users')
+          .update({ role: 'philanthropist', is_active: true, updated_at: new Date().toISOString() })
+          .eq('id', submission.user_id);
+      }
+
+      // Log admin action
+      await supabaseAdmin.from('admin_audit_logs').insert([{
+        admin_user_id: userId,
+        action_type: 'kyc_approved',
+        target_user_id: submission?.user_id,
+        details: { submission_id },
+      }]);
+
       return NextResponse.json<ApiResponse<typeof result>>(
         { success: true, data: result },
         { status: 200 }
       );
+
     } else if (action === 'reject') {
-      if (!rejection_reason) {
+      if (!rejection_reason?.trim()) {
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Rejection reason required' },
+          { success: false, error: 'Rejection reason is required' },
           { status: 400 }
         );
       }
-      const result = await rejectKYCSubmission(submission_id, userId, rejection_reason);
+
+      const { data: submission } = await supabaseAdmin
+        .from('kyc_submissions')
+        .select('user_id')
+        .eq('id', submission_id)
+        .single();
+
+      const { data: result, error } = await supabaseAdmin
+        .from('kyc_submissions')
+        .update({
+          status: 'rejected',
+          rejection_reason,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: userId,
+        })
+        .eq('id', submission_id)
+        .select()
+        .single();
+
+      if (error) {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'Failed to reject: ' + error.message },
+          { status: 500 }
+        );
+      }
+
+      // Log admin action
+      await supabaseAdmin.from('admin_audit_logs').insert([{
+        admin_user_id: userId,
+        action_type: 'kyc_rejected',
+        target_user_id: submission?.user_id,
+        details: { submission_id, rejection_reason },
+      }]);
+
       return NextResponse.json<ApiResponse<typeof result>>(
         { success: true, data: result },
         { status: 200 }
       );
     }
 
-    return NextResponse.json<ApiResponse<null>>(
-      { success: false, error: 'Invalid action' },
-      { status: 400 }
-    );
+    return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Invalid action' }, { status: 400 });
   } catch (error) {
     console.error('[v0] KYC PATCH error:', error);
-    return NextResponse.json<ApiResponse<null>>(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
