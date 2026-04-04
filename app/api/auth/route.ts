@@ -5,10 +5,12 @@ import type { ApiResponse } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { action, email, password, username, role = 'beneficiary' } = await request.json();
+    const { action, email: rawEmail, password, username, role = 'beneficiary' } = await request.json();
+
+    // Normalize email — always lowercase and trimmed
+    const email = rawEmail?.toLowerCase().trim();
 
     if (action === 'register') {
-      // Validate inputs
       if (!email || !password || password.length < 8) {
         return NextResponse.json<ApiResponse<null>>(
           { success: false, error: 'Invalid email or password (min 8 characters)' },
@@ -16,7 +18,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Check if user exists
+      // Check if user exists (case-insensitive)
       const existingUser = await getUserByEmail(email);
       if (existingUser) {
         return NextResponse.json<ApiResponse<null>>(
@@ -26,10 +28,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Generate username if not provided
-      let finalUsername = username;
+      let finalUsername = username?.toLowerCase().trim();
       if (!finalUsername) {
         finalUsername = generateUsernameFromEmail(email);
-        // Ensure unique
         let counter = 0;
         let checkUsername = await getUserByUsername(finalUsername);
         while (checkUsername && counter < 10) {
@@ -38,7 +39,6 @@ export async function POST(request: NextRequest) {
           counter++;
         }
       } else {
-        // Check if username exists
         const existingUsername = await getUserByUsername(finalUsername);
         if (existingUsername) {
           return NextResponse.json<ApiResponse<null>>(
@@ -48,12 +48,10 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Hash password
       const passwordHash = hashPassword(password);
 
-      // Create user
       const newUser = await createUser({
-        email,
+        email, // already lowercased
         username: finalUsername,
         password_hash: passwordHash,
         role,
@@ -66,19 +64,13 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Generate token
       const token = generateToken(newUser.id);
 
       return NextResponse.json<ApiResponse<{ user: typeof newUser; token: string }>>(
-        {
-          success: true,
-          data: {
-            user: newUser,
-            token,
-          },
-        },
+        { success: true, data: { user: newUser, token } },
         { status: 201 }
       );
+
     } else if (action === 'login') {
       if (!email || !password) {
         return NextResponse.json<ApiResponse<null>>(
@@ -87,6 +79,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Fetch user by lowercased email
       const user = await getUserByEmail(email);
       if (!user) {
         return NextResponse.json<ApiResponse<null>>(
@@ -95,7 +88,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Verify password
       if (!verifyPassword(password, user.password_hash)) {
         return NextResponse.json<ApiResponse<null>>(
           { success: false, error: 'Invalid email or password' },
@@ -103,22 +95,14 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Update last login
       await updateUser(user.id, {
         last_login: new Date().toISOString(),
       } as any);
 
-      // Generate token
       const token = generateToken(user.id);
 
       return NextResponse.json<ApiResponse<{ user: typeof user; token: string }>>(
-        {
-          success: true,
-          data: {
-            user,
-            token,
-          },
-        },
+        { success: true, data: { user, token } },
         { status: 200 }
       );
     }
@@ -127,6 +111,7 @@ export async function POST(request: NextRequest) {
       { success: false, error: 'Invalid action' },
       { status: 400 }
     );
+
   } catch (error) {
     console.error('[v0] Auth error:', error);
     return NextResponse.json<ApiResponse<null>>(

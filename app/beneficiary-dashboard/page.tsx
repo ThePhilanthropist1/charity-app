@@ -222,6 +222,22 @@ export default function BeneficiaryDashboardPage() {
 
   const isActivated = balance?.payment_status === 'verified';
 
+  // Philanthropist card — only shown to activated beneficiaries
+  const PhilanthropistCard = () => (
+    <div onClick={() => router.push('/philanthropist/kyc')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.3)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Award style={{ width: 22, height: 22, color: '#00CEC9' }} />
+        </div>
+        <div>
+          <p style={{ fontWeight: 700, fontSize: 14, color: 'white', marginBottom: 3 }}>Become a Philanthropist</p>
+          <p style={{ fontSize: 12, color: '#8FA3BF' }}>Help onboard beneficiaries & earn 1,000 free tokens. Submit KYC to apply.</p>
+        </div>
+      </div>
+      <ChevronRight style={{ width: 18, height: 18, color: '#00CEC9', flexShrink: 0 }} />
+    </div>
+  );
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif', position: 'relative', overflowX: 'hidden' }}>
 
@@ -275,7 +291,7 @@ export default function BeneficiaryDashboardPage() {
           )}
         </div>
 
-        {/* ALERTS */}
+        {/* ACTIVATION ALERT */}
         {!isActivated && (
           <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 14, backgroundColor: 'rgba(255,193,7,0.08)', border: '1px solid rgba(255,193,7,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -313,6 +329,8 @@ export default function BeneficiaryDashboardPage() {
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* STATS */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               {[
                 { label: 'Current Balance', value: balance?.current_balance?.toLocaleString() || '0', sub: 'Charity Tokens' },
@@ -327,23 +345,13 @@ export default function BeneficiaryDashboardPage() {
               ))}
             </div>
 
+            {/* MEMBERSHIP CARD */}
             <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
 
-            {/* BECOME A PHILANTHROPIST */}
-            <div onClick={() => router.push('/philanthropist/kyc')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.3)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Award style={{ width: 22, height: 22, color: '#00CEC9' }} />
-                </div>
-                <div>
-                  <p style={{ fontWeight: 700, fontSize: 14, color: 'white', marginBottom: 3 }}>Become a Philanthropist</p>
-                  <p style={{ fontSize: 12, color: '#8FA3BF' }}>Help onboard beneficiaries & earn 1,000 free tokens. Submit KYC to apply.</p>
-                </div>
-              </div>
-              <ChevronRight style={{ width: 18, height: 18, color: '#00CEC9', flexShrink: 0 }} />
-            </div>
+            {/* BECOME A PHILANTHROPIST — only for activated accounts */}
+            {isActivated && <PhilanthropistCard />}
 
-            {/* ADMIN PANEL CARD — only for admin */}
+            {/* ADMIN PANEL — only for admin */}
             {isAdmin && (
               <div onClick={() => router.push('/admin')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(108,63,200,0.4)', background: 'linear-gradient(135deg, rgba(108,63,200,0.08) 0%, rgba(155,89,182,0.08) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -364,6 +372,8 @@ export default function BeneficiaryDashboardPage() {
         {/* ── PROFILE TAB ── */}
         {activeTab === 'profile' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* PROFILE PICTURE */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Profile Picture</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -385,6 +395,7 @@ export default function BeneficiaryDashboardPage() {
               </div>
             </div>
 
+            {/* PERSONAL INFO */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>Personal Information</p>
@@ -429,23 +440,15 @@ export default function BeneficiaryDashboardPage() {
               </div>
             </div>
 
+            {/* MEMBERSHIP CARD PREVIEW */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Your Membership ID Card</p>
               <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
             </div>
 
-            <div onClick={() => router.push('/philanthropist/kyc')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.3)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Award style={{ width: 22, height: 22, color: '#00CEC9' }} />
-                </div>
-                <div>
-                  <p style={{ fontWeight: 700, fontSize: 14, color: 'white', marginBottom: 3 }}>Become a Philanthropist</p>
-                  <p style={{ fontSize: 12, color: '#8FA3BF' }}>Submit KYC to apply and receive 1,000 free tokens upon approval.</p>
-                </div>
-              </div>
-              <ChevronRight style={{ width: 18, height: 18, color: '#00CEC9', flexShrink: 0 }} />
-            </div>
+            {/* BECOME A PHILANTHROPIST — only for activated accounts */}
+            {isActivated && <PhilanthropistCard />}
+
           </div>
         )}
 
