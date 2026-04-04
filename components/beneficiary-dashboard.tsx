@@ -15,15 +15,39 @@ export function BeneficiaryActivationFlow() {
   const [transactionHash, setTransactionHash] = useState('');
   const [copied, setCopied] = useState(false);
   const [isPiBrowser, setIsPiBrowser] = useState(false);
+  const [piReady, setPiReady] = useState(false);
 
   const walletAddress = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
 
   useEffect(() => {
     const ua = navigator.userAgent || '';
-    setIsPiBrowser(ua.includes('PiBrowser') || ua.includes('Pi Network'));
+    const inPiBrowser = ua.includes('PiBrowser') || ua.includes('Pi Network');
+    setIsPiBrowser(inPiBrowser);
+
+    // Initialize Pi SDK if in Pi Browser
+    if (inPiBrowser) {
+      const initPi = () => {
+        const Pi = (window as any).Pi;
+        if (Pi) {
+          try {
+            Pi.init({ version: '2.0', sandbox: false });
+            setPiReady(true);
+          } catch (e) {
+            console.error('Pi init error:', e);
+          }
+        }
+      };
+
+      // Try immediately, then retry after a delay if SDK not loaded yet
+      if ((window as any).Pi) {
+        initPi();
+      } else {
+        const timer = setTimeout(initPi, 1500);
+        return () => clearTimeout(timer);
+      }
+    }
   }, []);
 
-  // Clear error and transaction hash when switching methods
   const selectMethod = (id: 'pi' | 'wallet' | 'philanthropist') => {
     setError('');
     setTransactionHash('');
@@ -42,28 +66,85 @@ export function BeneficiaryActivationFlow() {
     setError('');
     try {
       const Pi = (window as any).Pi;
-      if (!Pi) throw new Error('Pi SDK not available.');
+      if (!Pi) throw new Error('Pi SDK not loaded. Please refresh and try again.');
+
+      // Authenticate the user with Pi Network first
+      const authResult = await new Promise<any>((resolve, reject) => {
+        Pi.authenticate(
+          ['payments', 'username'],
+          (incompletePayment: any) => {
+            // Handle any incomplete payment from a previous session
+            if (incompletePayment) {
+              console.log('Incomplete Pi payment found, completing:', incompletePayment.identifier);
+            }
+          }
+        ).then(resolve).catch(reject);
+      });
+
+      if (!authResult?.user) {
+        throw new Error('Pi authentication failed. Please ensure you are logged into Pi Browser.');
+      }
+
+      // Create the payment
       await Pi.createPayment(
-        { amount: 6.0, memo: 'Charity Token Account Activation', metadata: { purpose: 'activation', userId: user?.id } },
+        {
+          amount: 6.0,
+          memo: 'Charity Token Account Activation',
+          metadata: { purpose: 'activation', userId: user?.id },
+        },
         {
           onReadyForServerApproval: async (paymentId: string) => {
-            const token = localStorage.getItem('auth_token');
-            await fetch('/api/activation', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ action: 'approve_pi', payment_id: paymentId }) });
+            try {
+              const token = localStorage.getItem('auth_token');
+              await fetch('/api/activation', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' + token,
+                },
+                body: JSON.stringify({ action: 'approve_pi', payment_id: paymentId }),
+              });
+            } catch (e) {
+              console.error('Server approval error:', e);
+            }
           },
           onReadyForServerCompletion: async (paymentId: string, txid: string) => {
-            const token = localStorage.getItem('auth_token');
-            const response = await fetch('/api/activation', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ action: 'pi_payment', activation_method: 'pi_payment', payment_id: paymentId, txid, amount_pi: 6.0 }) });
-            const result = await response.json();
-            if (result.success) setSuccess(true);
-            else setError(result.error || 'Payment failed');
+            try {
+              const token = localStorage.getItem('auth_token');
+              const response = await fetch('/api/activation', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' + token,
+                },
+                body: JSON.stringify({
+                  action: 'pi_payment',
+                  activation_method: 'pi_payment',
+                  payment_id: paymentId,
+                  txid,
+                  amount_pi: 6.0,
+                }),
+              });
+              const result = await response.json();
+              if (result.success) setSuccess(true);
+              else setError(result.error || 'Payment completion failed. Please contact support.');
+            } catch (e) {
+              setError('Failed to complete payment. Please contact support with your Pi transaction ID: ' + txid);
+            }
             setLoading(false);
           },
-          onCancel: () => { setError('Payment was cancelled.'); setLoading(false); },
-          onError: (err: any) => { setError(err?.message || 'Payment failed.'); setLoading(false); },
+          onCancel: () => {
+            setError('Payment was cancelled.');
+            setLoading(false);
+          },
+          onError: (err: any) => {
+            setError(err?.message || 'Pi payment failed. Please try again.');
+            setLoading(false);
+          },
         }
       );
     } catch (err: any) {
-      setError(err?.message || 'Payment failed.');
+      setError(err?.message || 'Pi payment failed. Please try again.');
       setLoading(false);
     }
   };
@@ -73,7 +154,11 @@ export function BeneficiaryActivationFlow() {
     setLoading(true); setError('');
     try {
       const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/activation', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ action: 'wallet_transfer', activation_method: 'wallet_transfer', transaction_hash: transactionHash }) });
+      const response = await fetch('/api/activation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ action: 'wallet_transfer', activation_method: 'wallet_transfer', transaction_hash: transactionHash }),
+      });
       const result = await response.json();
       if (result.success) setSuccess(true);
       else setError(result.error || 'Verification failed. Please check your transaction hash and try again.');
@@ -87,7 +172,10 @@ export function BeneficiaryActivationFlow() {
           <CheckCircle style={{ width: 44, height: 44, color: '#00B894' }} />
         </div>
         <h2 style={{ fontSize: 28, fontWeight: 800, color: 'white', marginBottom: 12 }}>Account Activated!</h2>
-        <p style={{ fontSize: 14, color: '#8FA3BF', lineHeight: 1.8, marginBottom: 28 }}>Your account has been successfully activated.<br />You will receive 500 Charity Tokens monthly for 10 years.</p>
+        <p style={{ fontSize: 14, color: '#8FA3BF', lineHeight: 1.8, marginBottom: 28 }}>
+          Your account has been successfully activated.<br />
+          You will receive 500 Charity Tokens monthly for 10 years.
+        </p>
         <button onClick={() => window.location.href = '/beneficiary-dashboard'} style={{ padding: '14px 36px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,206,201,0.3)' }}>
           Go to Dashboard
         </button>
@@ -104,7 +192,6 @@ export function BeneficiaryActivationFlow() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* Only show error after a user action — never on initial load */}
       {error && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 12 }}>
           <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0, marginTop: 1 }} />
@@ -129,8 +216,8 @@ export function BeneficiaryActivationFlow() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 15, color: 'white' }}>{m.title}</span>
                   {m.id === 'pi' && (
-                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, backgroundColor: isPiBrowser ? 'rgba(0,184,148,0.2)' : 'rgba(255,193,7,0.15)', color: isPiBrowser ? '#00B894' : '#ffc107', fontWeight: 600, border: '1px solid ' + (isPiBrowser ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)') }}>
-                      {isPiBrowser ? 'Ready' : 'Pi Browser Only'}
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, backgroundColor: isPiBrowser ? (piReady ? 'rgba(0,184,148,0.2)' : 'rgba(255,193,7,0.15)') : 'rgba(255,193,7,0.15)', color: isPiBrowser ? (piReady ? '#00B894' : '#ffc107') : '#ffc107', fontWeight: 600, border: '1px solid ' + (isPiBrowser ? (piReady ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)') : 'rgba(255,193,7,0.3)') }}>
+                      {isPiBrowser ? (piReady ? 'Ready' : 'Initializing...') : 'Pi Browser Only'}
                     </span>
                   )}
                 </div>
@@ -148,13 +235,45 @@ export function BeneficiaryActivationFlow() {
                   <Info style={{ width: 16, height: 16, color: '#ffc107', flexShrink: 0, marginTop: 1 }} />
                   <div>
                     <p style={{ fontSize: 13, color: '#ffd54f', fontWeight: 600, margin: '0 0 4px' }}>Pi Browser Required</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6, margin: 0 }}>Open this website in your Pi Browser app to pay with Pi. Use Wallet Transfer or Via Philanthropist from any browser.</p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6, margin: '0 0 10px' }}>
+                      Open this website in your Pi Browser app to pay with Pi. You can use Wallet Transfer or Via Philanthropist from any browser.
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', backgroundColor: 'rgba(0,206,201,0.06)', borderRadius: 8, border: '1px solid rgba(0,206,201,0.15)' }}>
+                      <code style={{ fontSize: 11, color: '#67e8f9', wordBreak: 'break-all' }}>https://shimmering-cassata-c25449.netlify.app</code>
+                    </div>
                   </div>
                 </div>
+              ) : !piReady ? (
+                <div style={{ display: 'flex', gap: 10, padding: '14px 16px', backgroundColor: 'rgba(255,193,7,0.06)', border: '1px solid rgba(255,193,7,0.25)', borderRadius: 12 }}>
+                  <div style={{ width: 16, height: 16, border: '2px solid rgba(255,193,7,0.3)', borderTop: '2px solid #ffc107', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                  <p style={{ fontSize: 13, color: '#ffd54f', margin: 0 }}>Initializing Pi SDK... Please wait.</p>
+                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
               ) : (
-                <button onClick={handlePiPayment} disabled={loading} style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
-                  {loading ? 'Processing...' : 'Pay 6.0 Pi'}
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ padding: '10px 14px', backgroundColor: 'rgba(0,184,148,0.05)', borderRadius: 10, border: '1px solid rgba(0,184,148,0.15)' }}>
+                    <p style={{ fontSize: 12, color: '#00B894', margin: 0, lineHeight: 1.6 }}>
+                      ✓ Pi Browser detected. You will be asked to authenticate with Pi and confirm a payment of <strong>6.0 Pi</strong>.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handlePiPayment}
+                    disabled={loading}
+                    style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  >
+                    {loading ? (
+                      <>
+                        <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                        Processing Pi Payment...
+                      </>
+                    ) : (
+                      <>
+                        <Coins style={{ width: 16, height: 16 }} />
+                        Pay 6.0 Pi
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -188,69 +307,46 @@ export function BeneficiaryActivationFlow() {
           {method === 'philanthropist' && m.id === 'philanthropist' && (
             <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-                {/* Step 1 */}
                 <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(0,206,201,0.04)', borderRadius: 12, border: '1px solid rgba(0,206,201,0.12)', alignItems: 'flex-start' }}>
                   <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #00CEC9, #00B894)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>1</div>
                   <div>
                     <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Find a Philanthropist in Your Region</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: '0 0 10px', lineHeight: 1.6 }}>
-                      Join our Telegram group to find a verified philanthropist near you. Each philanthropist lists their region and payment details.
-                    </p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: '0 0 10px', lineHeight: 1.6 }}>Join our Telegram group to find a verified philanthropist near you. Each philanthropist lists their region and payment details.</p>
                     <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, backgroundColor: 'rgba(0,136,204,0.15)', border: '1px solid rgba(0,136,204,0.3)', color: '#67e8f9', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
-                      <Send style={{ width: 13, height: 13 }} /> Open Telegram Group
-                      <ExternalLink style={{ width: 11, height: 11 }} />
+                      <Send style={{ width: 13, height: 13 }} /> Open Telegram Group <ExternalLink style={{ width: 11, height: 11 }} />
                     </a>
                   </div>
                 </div>
-
-                {/* Step 2 */}
                 <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(0,184,148,0.04)', borderRadius: 12, border: '1px solid rgba(0,184,148,0.12)', alignItems: 'flex-start' }}>
                   <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #00B894, #00CEC9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>2</div>
                   <div>
                     <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Send $1 Equivalent in Your Local Currency</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
-                      Pay the philanthropist $1 USD equivalent using any local fiat method they accept (bank transfer, mobile money, cash, etc). The philanthropist's accepted payment methods are listed on Telegram.
-                    </p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>Pay the philanthropist $1 USD equivalent using any local fiat method they accept (bank transfer, mobile money, cash, etc). Payment methods are listed on Telegram.</p>
                   </div>
                 </div>
-
-                {/* Step 3 */}
                 <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(103,232,249,0.04)', borderRadius: 12, border: '1px solid rgba(103,232,249,0.12)', alignItems: 'flex-start' }}>
                   <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #67e8f9, #00CEC9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: '#0A1628' }}>3</div>
                   <div>
                     <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Message the Philanthropist on Telegram</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
-                      Send a Telegram message to the philanthropist with your <strong style={{ color: 'white' }}>payment receipt</strong> and your <strong style={{ color: 'white' }}>registered email address</strong>. They will activate your account within <strong style={{ color: '#00B894' }}>24 hours</strong>.
-                    </p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>Send a Telegram message with your <strong style={{ color: 'white' }}>payment receipt</strong> and <strong style={{ color: 'white' }}>registered email</strong>. They will activate your account within <strong style={{ color: '#00B894' }}>24 hours</strong>.</p>
                   </div>
                 </div>
-
-                {/* Step 4 */}
                 <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(255,193,7,0.04)', borderRadius: 12, border: '1px solid rgba(255,193,7,0.12)', alignItems: 'flex-start' }}>
                   <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #ffc107, #ff9800)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>4</div>
                   <div>
                     <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Wait for Activation Confirmation</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
-                      Once the philanthropist activates your account, log out and log back in to see your updated status. Philanthropists are required to process all submissions within <strong style={{ color: '#ffc107' }}>24 hours</strong>.
-                    </p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>Once activated, log out and log back in to see your updated status. Philanthropists must process all submissions within <strong style={{ color: '#ffc107' }}>24 hours</strong>.</p>
                   </div>
                 </div>
               </div>
-
-              {/* Email reminder */}
               <div style={{ padding: '12px 16px', backgroundColor: 'rgba(0,206,201,0.06)', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <MessageCircle style={{ width: 15, height: 15, color: '#00CEC9', flexShrink: 0 }} />
                 <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
-                  Your registered email: <strong style={{ color: '#67e8f9' }}>{user?.email || 'your email'}</strong> — include this in your Telegram message to the philanthropist.
+                  Your registered email: <strong style={{ color: '#67e8f9' }}>{user?.email || 'your email'}</strong> — include this in your Telegram message.
                 </p>
               </div>
-
-              {/* CTA */}
               <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 14, textDecoration: 'none', boxSizing: 'border-box' }}>
-                <Send style={{ width: 16, height: 16 }} />
-                Go to Telegram Group
-                <ExternalLink style={{ width: 14, height: 14 }} />
+                <Send style={{ width: 16, height: 16 }} /> Go to Telegram Group <ExternalLink style={{ width: 14, height: 14 }} />
               </a>
             </div>
           )}
@@ -329,9 +425,7 @@ export function BeneficiaryDashboard() {
               <span style={{ width: 4, height: 16, backgroundColor: '#67e8f9', borderRadius: 2, display: 'inline-block' }} />
               Distribution History
             </p>
-            <span style={{ fontSize: 11, color: '#8FA3BF', padding: '4px 10px', borderRadius: 999, border: '1px solid rgba(0,206,201,0.2)' }}>
-              {completedCount} completed
-            </span>
+            <span style={{ fontSize: 11, color: '#8FA3BF', padding: '4px 10px', borderRadius: 999, border: '1px solid rgba(0,206,201,0.2)' }}>{completedCount} completed</span>
           </div>
           {distributions.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '48px 20px' }}>

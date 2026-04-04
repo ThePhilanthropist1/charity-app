@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { AppWrapper } from "@/components/app-wrapper";
+import Script from "next/script";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -16,11 +17,11 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "Charity Token - Empowering 1 Million Lives",
   description: "Receive 500 Charity tokens monthly for 10 years. Sign up, activate your account, and own a piece of the future.",
-  metadataBase: new URL("https://charity-token.vercel.app"),
+  metadataBase: new URL("https://shimmering-cassata-c25449.netlify.app"),
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://charity-token.vercel.app",
+    url: "https://shimmering-cassata-c25449.netlify.app",
     title: "Charity Token - Empowering 1 Million Lives",
     description: "Receive 500 Charity tokens monthly for 10 years",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
@@ -30,7 +31,6 @@ export const metadata: Metadata = {
     title: "Charity Token - Empowering 1 Million Lives",
     description: "Receive 500 Charity tokens monthly for 10 years",
   },
-  generator: 'v0.app'
 };
 
 export default function RootLayout({
@@ -62,6 +62,16 @@ export default function RootLayout({
         `}</style>
       </head>
       <body className="w-full min-h-screen bg-[#0A1628]">
+        {/* Pi Network SDK — loads before page content so Pi object is available */}
+        <Script
+          src="https://sdk.minepi.com/pi-sdk.js"
+          strategy="beforeInteractive"
+        />
+        <Script id="pi-sdk-init" strategy="afterInteractive">{`
+          if (typeof window !== 'undefined' && window.Pi) {
+            window.Pi.init({ version: "2.0", sandbox: false });
+          }
+        `}</Script>
         <AppWrapper>{children}</AppWrapper>
       </body>
     </html>
