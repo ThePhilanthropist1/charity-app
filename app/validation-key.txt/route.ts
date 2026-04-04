@@ -1,0 +1,13 @@
+﻿import { NextResponse } from 'next/server';
+
+export async function GET() {
+  return new NextResponse(
+    '6dc0b16332a35b2f25686849a1adf7c2a752d9894b50e12bfb3800c503b1b89c5cd612ecb9ef795b39f9fd6d94bf8c1cdfb2d29ad65774ef7afe7d3a48e95c62',
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/plain',
+      },
+    }
+  );
+}
