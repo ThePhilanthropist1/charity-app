@@ -8,7 +8,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   Users, Shield, Clock, Coins, LogOut, X, Trash2,
-  ChevronRight, BarChart3, AlertCircle, Eye
+  ChevronRight, BarChart3, AlertCircle, Eye, Home
 } from 'lucide-react';
 
 export default function AdminMainDashboardPage() {
@@ -26,23 +26,38 @@ export default function AdminMainDashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    if (!authLoading && user?.role !== 'admin') { router.push('/'); return; }
-    if (user?.id) loadDashboard();
-  }, [user, authLoading, router]);
+    if (authLoading) return;
+    if (!user) { router.push('/login'); return; }
+    // Allow access by email OR role
+    const isAdmin = user?.email?.toLowerCase() === 'dinfadashe@gmail.com' || user?.role === 'admin';
+    if (!isAdmin) { router.push('/beneficiary-dashboard'); return; }
+    loadDashboard();
+  }, [user, authLoading]);
 
   const loadDashboard = async () => {
     try {
       setLoading(true);
       const { data: allUsers } = await supabase.from('users').select('*').order('created_at', { ascending: false });
       setUsers(allUsers || []);
-      const { data: beneficiaries, count: benCount } = await supabase.from('beneficiaries').select('*', { count: 'exact' });
+
+      const { data: beneficiaries } = await supabase.from('beneficiaries').select('*');
       const activeBeneficiaries = beneficiaries?.filter((b) => b.is_activated).length || 0;
-      const { data: philanthropists, count: philCount } = await supabase.from('philanthropists').select('*', { count: 'exact' });
+
+      const { data: philanthropists } = await supabase.from('philanthropists').select('*');
       const approvedPhil = philanthropists?.filter((p) => p.kyc_status === 'approved').length || 0;
       const pendingKyc = philanthropists?.filter((p) => p.kyc_status === 'submitted').length || 0;
+
       const { data: distributions } = await supabase.from('token_transactions').select('amount').eq('transaction_type', 'distribution');
-      const totalDistributed = distributions?.reduce((sum, d) => sum + d.amount, 0) || 0;
-      setStats({ total_beneficiaries: benCount || 0, active_beneficiaries: activeBeneficiaries, total_philanthropists: philCount || 0, approved_philanthropists: approvedPhil, pending_kyc: pendingKyc, total_tokens_distributed: totalDistributed });
+      const totalDistributed = distributions?.reduce((sum, d) => sum + (d.amount || 0), 0) || 0;
+
+      setStats({
+        total_beneficiaries: allUsers?.filter(u => u.role === 'beneficiary').length || 0,
+        active_beneficiaries: activeBeneficiaries,
+        total_philanthropists: allUsers?.filter(u => u.role === 'philanthropist').length || 0,
+        approved_philanthropists: approvedPhil,
+        pending_kyc: pendingKyc,
+        total_tokens_distributed: totalDistributed,
+      });
     } catch (error) { console.error('Error loading dashboard:', error); }
     finally { setLoading(false); }
   };
@@ -62,7 +77,21 @@ export default function AdminMainDashboardPage() {
     (u.role || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  if (authLoading || loading) {
+  // ── AUTH LOADING ──
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 48, height: 48, border: '3px solid rgba(108,63,200,0.3)', borderTop: '3px solid #9B59B6', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
+          <p style={{ color: '#8FA3BF', fontSize: 14 }}>Verifying admin access...</p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      </div>
+    );
+  }
+
+  // ── DATA LOADING ──
+  if (loading) {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center' }}>
@@ -78,22 +107,26 @@ export default function AdminMainDashboardPage() {
     <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif' }}>
 
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 800, height: 800, background: 'radial-gradient(circle, rgba(0,206,201,0.04) 0%, transparent 70%)', borderRadius: '50%' }} />
+        <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 800, height: 800, background: 'radial-gradient(circle, rgba(108,63,200,0.05) 0%, transparent 70%)', borderRadius: '50%' }} />
       </div>
 
+      {/* HEADER */}
       <header style={{ position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(10,22,40,0.95)', backdropFilter: 'blur(12px)' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Image src="/Charity token logo.jpg" alt="Charity Token" width={36} height={36} style={{ borderRadius: 9 }} />
             <div>
               <p style={{ fontSize: 15, fontWeight: 700, color: 'white', margin: 0 }}>Charity Token</p>
-              <p style={{ fontSize: 10, color: '#8FA3BF', margin: 0, letterSpacing: 0.5 }}>ADMIN CONSOLE</p>
+              <p style={{ fontSize: 10, color: '#9B59B6', margin: 0, letterSpacing: 0.5, fontWeight: 600 }}>ADMIN CONSOLE</p>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 999, backgroundColor: 'rgba(0,206,201,0.1)', border: '1px solid rgba(0,206,201,0.2)' }}>
-              <Shield style={{ width: 14, height: 14, color: '#00CEC9' }} />
-              <span style={{ fontSize: 12, color: '#00CEC9', fontWeight: 600 }}>{user?.full_name || user?.email}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => router.push('/beneficiary-dashboard')} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 14px', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', color: '#67e8f9', background: 'transparent', cursor: 'pointer' }}>
+              <Home style={{ width: 13, height: 13 }} /> My Dashboard
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 999, backgroundColor: 'rgba(108,63,200,0.15)', border: '1px solid rgba(108,63,200,0.3)' }}>
+              <Shield style={{ width: 14, height: 14, color: '#9B59B6' }} />
+              <span style={{ fontSize: 12, color: '#9B59B6', fontWeight: 600 }}>{user?.full_name || user?.email}</span>
             </div>
             <button onClick={signOut} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', color: '#8FA3BF', background: 'transparent', cursor: 'pointer' }}>
               <LogOut style={{ width: 14, height: 14 }} /> Sign Out
@@ -104,12 +137,14 @@ export default function AdminMainDashboardPage() {
 
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 24px 60px', position: 'relative', zIndex: 10 }}>
 
+        {/* PAGE TITLE */}
         <div style={{ marginBottom: 28 }}>
-          <p style={{ fontSize: 11, color: '#8FA3BF', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase' }}>Platform Management</p>
+          <p style={{ fontSize: 11, color: '#9B59B6', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 600 }}>Platform Management</p>
           <h1 style={{ fontSize: 32, fontWeight: 800, color: 'white', margin: 0 }}>Admin Dashboard</h1>
           <p style={{ fontSize: 13, color: '#8FA3BF', marginTop: 6 }}>Monitor platform activity, manage users, and review KYC submissions</p>
         </div>
 
+        {/* STATS */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
           {[
             { label: 'Total Beneficiaries', value: stats.total_beneficiaries.toLocaleString(), sub: stats.active_beneficiaries + ' active', icon: <Users style={{ width: 20, height: 20, color: '#00CEC9' }} />, color: '#00CEC9', bg: 'rgba(0,206,201,0.1)' },
@@ -128,6 +163,7 @@ export default function AdminMainDashboardPage() {
           ))}
         </div>
 
+        {/* QUICK ACTIONS */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
           <Link href="/admin/kyc-review" style={{ textDecoration: 'none' }}>
             <div style={{ padding: '20px 24px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.25)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -160,6 +196,7 @@ export default function AdminMainDashboardPage() {
           </Link>
         </div>
 
+        {/* USERS TABLE */}
         <div style={{ padding: '24px', borderRadius: 20, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.02)', marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
             <div>
@@ -181,7 +218,7 @@ export default function AdminMainDashboardPage() {
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(0,206,201,0.15)' }}>
-                  {['Name', 'Email', 'Role', 'Status', 'Joined', 'Action'].map((h) => (
+                  {['Name', 'Email', 'Role', 'Joined', 'Action'].map((h) => (
                     <th key={h} style={{ textAlign: 'left', paddingBottom: 12, color: '#8FA3BF', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, paddingRight: 16 }}>{h}</th>
                   ))}
                 </tr>
@@ -191,21 +228,20 @@ export default function AdminMainDashboardPage() {
                   <tr key={u.id} style={{ borderBottom: '1px solid rgba(0,206,201,0.06)' }}>
                     <td style={{ padding: '14px 16px 14px 0', color: 'white', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid rgba(0,206,201,0.2)' }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#00CEC9' }}>{(u.full_name || u.email || 'U')[0].toUpperCase()}</span>
-                        </div>
+                        {u.profile_picture ? (
+                          <img src={u.profile_picture} alt={u.full_name} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(0,206,201,0.3)', flexShrink: 0 }} />
+                        ) : (
+                          <div style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid rgba(0,206,201,0.2)' }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#00CEC9' }}>{(u.full_name || u.email || 'U')[0].toUpperCase()}</span>
+                          </div>
+                        )}
                         <span>{u.full_name || 'No name'}</span>
                       </div>
                     </td>
                     <td style={{ padding: '14px 16px 14px 0', color: '#8FA3BF', fontFamily: 'monospace', fontSize: 12 }}>{u.email}</td>
                     <td style={{ padding: '14px 16px 14px 0' }}>
-                      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, backgroundColor: u.role === 'admin' ? 'rgba(103,232,249,0.15)' : u.role === 'philanthropist' ? 'rgba(0,184,148,0.15)' : 'rgba(0,206,201,0.15)', color: u.role === 'admin' ? '#67e8f9' : u.role === 'philanthropist' ? '#00B894' : '#00CEC9', border: '1px solid ' + (u.role === 'admin' ? 'rgba(103,232,249,0.3)' : u.role === 'philanthropist' ? 'rgba(0,184,148,0.3)' : 'rgba(0,206,201,0.3)'), textTransform: 'capitalize' }}>
+                      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, backgroundColor: u.role === 'admin' ? 'rgba(155,89,182,0.2)' : u.role === 'philanthropist' ? 'rgba(0,184,148,0.15)' : 'rgba(0,206,201,0.15)', color: u.role === 'admin' ? '#9B59B6' : u.role === 'philanthropist' ? '#00B894' : '#00CEC9', border: '1px solid ' + (u.role === 'admin' ? 'rgba(155,89,182,0.4)' : u.role === 'philanthropist' ? 'rgba(0,184,148,0.3)' : 'rgba(0,206,201,0.3)'), textTransform: 'capitalize' }}>
                         {u.role}
-                      </span>
-                    </td>
-                    <td style={{ padding: '14px 16px 14px 0' }}>
-                      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, backgroundColor: u.is_active ? 'rgba(0,184,148,0.15)' : 'rgba(255,193,7,0.15)', color: u.is_active ? '#00B894' : '#ffc107', border: '1px solid ' + (u.is_active ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)') }}>
-                        {u.is_active ? 'Active' : 'Pending'}
                       </span>
                     </td>
                     <td style={{ padding: '14px 16px 14px 0', color: '#8FA3BF' }}>{new Date(u.created_at).toLocaleDateString()}</td>
@@ -230,6 +266,7 @@ export default function AdminMainDashboardPage() {
           )}
         </div>
 
+        {/* ADMIN LOGS */}
         <div style={{ padding: '24px', borderRadius: 20, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.02)' }}>
           <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 4, height: 18, backgroundColor: '#67e8f9', borderRadius: 2, display: 'inline-block' }} />
@@ -243,8 +280,9 @@ export default function AdminMainDashboardPage() {
 
       </main>
 
+      {/* USER DETAIL MODAL */}
       {selectedUser && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50, backdropFilter: 'blur(4px)' }}>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100, backdropFilter: 'blur(4px)' }}>
           <div style={{ width: '100%', maxWidth: 460, backgroundColor: '#0F1F35', border: '1px solid rgba(0,206,201,0.2)', borderRadius: 20, padding: 28, boxShadow: '0 40px 80px rgba(0,0,0,0.5)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
               <h2 style={{ fontSize: 18, fontWeight: 700, color: 'white', margin: 0 }}>User Details</h2>
@@ -254,20 +292,24 @@ export default function AdminMainDashboardPage() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24, padding: '16px', borderRadius: 14, backgroundColor: 'rgba(0,206,201,0.04)', border: '1px solid rgba(0,206,201,0.1)' }}>
-              <div style={{ width: 52, height: 52, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(0,206,201,0.3)', flexShrink: 0 }}>
-                <span style={{ fontSize: 22, fontWeight: 800, color: '#00CEC9' }}>{(selectedUser.full_name || selectedUser.email || 'U')[0].toUpperCase()}</span>
-              </div>
+              {selectedUser.profile_picture ? (
+                <img src={selectedUser.profile_picture} alt={selectedUser.full_name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(0,206,201,0.4)', flexShrink: 0 }} />
+              ) : (
+                <div style={{ width: 52, height: 52, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(0,206,201,0.3)', flexShrink: 0 }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: '#00CEC9' }}>{(selectedUser.full_name || selectedUser.email || 'U')[0].toUpperCase()}</span>
+                </div>
+              )}
               <div>
                 <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 4px' }}>{selectedUser.full_name || 'No name'}</p>
                 <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{selectedUser.email}</p>
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
               {[
                 { label: 'Role', value: selectedUser.role, capitalize: true },
-                { label: 'Status', value: selectedUser.is_active ? 'Active' : 'Pending' },
                 { label: 'Country', value: selectedUser.country || 'Not specified' },
+                { label: 'Phone', value: selectedUser.phone || 'Not specified' },
                 { label: 'Joined', value: new Date(selectedUser.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) },
                 { label: 'User ID', value: selectedUser.id?.slice(0, 16) + '...' },
               ].map((item) => (
@@ -282,7 +324,7 @@ export default function AdminMainDashboardPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 12 }}>
                   <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0, marginTop: 1 }} />
-                  <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0 }}>This action cannot be undone. Are you sure you want to delete this user?</p>
+                  <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0 }}>This action cannot be undone. Are you sure?</p>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={handleDeleteUser} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: '#ff6b6b', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
@@ -295,9 +337,11 @@ export default function AdminMainDashboardPage() {
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setConfirmDelete(true)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'rgba(255,107,107,0.1)', color: '#ff6b6b', fontWeight: 700, fontSize: 14, border: '1px solid rgba(255,107,107,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <Trash2 style={{ width: 15, height: 15 }} /> Delete User
-                </button>
+                {selectedUser.email?.toLowerCase() !== 'dinfadashe@gmail.com' && (
+                  <button onClick={() => setConfirmDelete(true)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'rgba(255,107,107,0.1)', color: '#ff6b6b', fontWeight: 700, fontSize: 14, border: '1px solid rgba(255,107,107,0.3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <Trash2 style={{ width: 15, height: 15 }} /> Delete User
+                  </button>
+                )}
                 <button onClick={() => setSelectedUser(null)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'transparent', color: '#8FA3BF', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
                   Close
                 </button>
