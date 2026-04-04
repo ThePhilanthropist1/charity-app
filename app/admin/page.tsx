@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase, logAdminAction, deletePhilanthropist } from '@/lib/supabase-client';
+import { supabase } from '@/lib/supabase-client';
 import { useAuth } from '@/contexts/auth-context';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -28,7 +28,6 @@ export default function AdminMainDashboardPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) { router.push('/login'); return; }
-    // Allow access by email OR role
     const isAdmin = user?.email?.toLowerCase() === 'dinfadashe@gmail.com' || user?.role === 'admin';
     if (!isAdmin) { router.push('/beneficiary-dashboard'); return; }
     loadDashboard();
@@ -37,25 +36,48 @@ export default function AdminMainDashboardPage() {
   const loadDashboard = async () => {
     try {
       setLoading(true);
-      const { data: allUsers } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+
+      // All users
+      const { data: allUsers } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false });
       setUsers(allUsers || []);
 
-      const { data: beneficiaries } = await supabase.from('beneficiaries').select('*');
-      const activeBeneficiaries = beneficiaries?.filter((b) => b.is_activated).length || 0;
+      // Active beneficiaries — only verified
+      const { count: activeCount } = await supabase
+        .from('beneficiary_activations')
+        .select('*', { count: 'exact', head: true })
+        .eq('payment_status', 'verified');
 
-      const { data: philanthropists } = await supabase.from('philanthropists').select('*');
-      const approvedPhil = philanthropists?.filter((p) => p.kyc_status === 'approved').length || 0;
-      const pendingKyc = philanthropists?.filter((p) => p.kyc_status === 'submitted').length || 0;
+      // Philanthropists — users with role = philanthropist
+      const philanthropists = (allUsers || []).filter(u => u.role === 'philanthropist');
 
-      const { data: distributions } = await supabase.from('token_transactions').select('amount').eq('transaction_type', 'distribution');
-      const totalDistributed = distributions?.reduce((sum, d) => sum + (d.amount || 0), 0) || 0;
+      // Approved philanthropists — KYC status = approved
+      const { count: approvedPhil } = await supabase
+        .from('kyc_submissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'approved');
+
+      // Pending KYC
+      const { count: pendingKyc } = await supabase
+        .from('kyc_submissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+
+      // Total tokens distributed
+      const { data: distributions } = await supabase
+        .from('token_transactions')
+        .select('amount')
+        .eq('transaction_type', 'distribution');
+      const totalDistributed = (distributions || []).reduce((sum, d) => sum + (d.amount || 0), 0);
 
       setStats({
-        total_beneficiaries: allUsers?.filter(u => u.role === 'beneficiary').length || 0,
-        active_beneficiaries: activeBeneficiaries,
-        total_philanthropists: allUsers?.filter(u => u.role === 'philanthropist').length || 0,
-        approved_philanthropists: approvedPhil,
-        pending_kyc: pendingKyc,
+        total_beneficiaries: activeCount || 0,
+        active_beneficiaries: activeCount || 0,
+        total_philanthropists: philanthropists.length,
+        approved_philanthropists: approvedPhil || 0,
+        pending_kyc: pendingKyc || 0,
         total_tokens_distributed: totalDistributed,
       });
     } catch (error) { console.error('Error loading dashboard:', error); }
@@ -65,7 +87,10 @@ export default function AdminMainDashboardPage() {
   const handleDeleteUser = async () => {
     if (!selectedUser || !user?.id) return;
     try {
-      await deletePhilanthropist(selectedUser.id, user.id, 'Admin deletion');
+      // Delete related records first
+      await supabase.from('beneficiary_activations').delete().eq('user_id', selectedUser.id);
+      await supabase.from('kyc_submissions').delete().eq('user_id', selectedUser.id);
+      await supabase.from('users').delete().eq('id', selectedUser.id);
       setSelectedUser(null); setConfirmDelete(false);
       await loadDashboard();
     } catch (error: any) { alert('Failed to delete user: ' + error.message); }
@@ -77,7 +102,6 @@ export default function AdminMainDashboardPage() {
     (u.role || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // ── AUTH LOADING ──
   if (authLoading) {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -90,7 +114,6 @@ export default function AdminMainDashboardPage() {
     );
   }
 
-  // ── DATA LOADING ──
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -105,7 +128,6 @@ export default function AdminMainDashboardPage() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif' }}>
-
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 800, height: 800, background: 'radial-gradient(circle, rgba(108,63,200,0.05) 0%, transparent 70%)', borderRadius: '50%' }} />
       </div>
@@ -137,7 +159,6 @@ export default function AdminMainDashboardPage() {
 
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 24px 60px', position: 'relative', zIndex: 10 }}>
 
-        {/* PAGE TITLE */}
         <div style={{ marginBottom: 28 }}>
           <p style={{ fontSize: 11, color: '#9B59B6', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 600 }}>Platform Management</p>
           <h1 style={{ fontSize: 32, fontWeight: 800, color: 'white', margin: 0 }}>Admin Dashboard</h1>
@@ -147,8 +168,8 @@ export default function AdminMainDashboardPage() {
         {/* STATS */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
           {[
-            { label: 'Total Beneficiaries', value: stats.total_beneficiaries.toLocaleString(), sub: stats.active_beneficiaries + ' active', icon: <Users style={{ width: 20, height: 20, color: '#00CEC9' }} />, color: '#00CEC9', bg: 'rgba(0,206,201,0.1)' },
-            { label: 'Philanthropists', value: stats.total_philanthropists.toLocaleString(), sub: stats.approved_philanthropists + ' verified', icon: <Shield style={{ width: 20, height: 20, color: '#00B894' }} />, color: '#00B894', bg: 'rgba(0,184,148,0.1)' },
+            { label: 'Active Beneficiaries', value: stats.active_beneficiaries.toLocaleString(), sub: 'Verified accounts', icon: <Users style={{ width: 20, height: 20, color: '#00CEC9' }} />, color: '#00CEC9', bg: 'rgba(0,206,201,0.1)' },
+            { label: 'Philanthropists', value: stats.total_philanthropists.toLocaleString(), sub: stats.approved_philanthropists + ' KYC approved', icon: <Shield style={{ width: 20, height: 20, color: '#00B894' }} />, color: '#00B894', bg: 'rgba(0,184,148,0.1)' },
             { label: 'Pending KYC', value: stats.pending_kyc.toLocaleString(), sub: 'Reviews needed', icon: <Clock style={{ width: 20, height: 20, color: '#ffc107' }} />, color: '#ffc107', bg: 'rgba(255,193,7,0.1)' },
             { label: 'Tokens Distributed', value: stats.total_tokens_distributed.toLocaleString(), sub: 'All time', icon: <Coins style={{ width: 20, height: 20, color: '#67e8f9' }} />, color: '#67e8f9', bg: 'rgba(103,232,249,0.1)' },
           ].map((s) => (
@@ -166,17 +187,20 @@ export default function AdminMainDashboardPage() {
         {/* QUICK ACTIONS */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
           <Link href="/admin/kyc-review" style={{ textDecoration: 'none' }}>
-            <div style={{ padding: '20px 24px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.25)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '20px 24px', borderRadius: 16, border: `1px solid ${stats.pending_kyc > 0 ? 'rgba(255,193,7,0.4)' : 'rgba(0,206,201,0.25)'}`, background: stats.pending_kyc > 0 ? 'linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(0,206,201,0.06) 100%)' : 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ width: 46, height: 46, borderRadius: 13, backgroundColor: 'rgba(0,206,201,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Shield style={{ width: 22, height: 22, color: '#00CEC9' }} />
+                <div style={{ width: 46, height: 46, borderRadius: 13, backgroundColor: stats.pending_kyc > 0 ? 'rgba(255,193,7,0.15)' : 'rgba(0,206,201,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                  <Shield style={{ width: 22, height: 22, color: stats.pending_kyc > 0 ? '#ffc107' : '#00CEC9' }} />
+                  {stats.pending_kyc > 0 && (
+                    <span style={{ position: 'absolute', top: -4, right: -4, width: 18, height: 18, borderRadius: '50%', backgroundColor: '#ff6b6b', color: 'white', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{stats.pending_kyc}</span>
+                  )}
                 </div>
                 <div>
                   <p style={{ fontWeight: 700, fontSize: 15, color: 'white', margin: '0 0 3px' }}>Review KYC Submissions</p>
-                  <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{stats.pending_kyc} pending reviews</p>
+                  <p style={{ fontSize: 12, color: stats.pending_kyc > 0 ? '#ffc107' : '#8FA3BF', margin: 0 }}>{stats.pending_kyc > 0 ? `${stats.pending_kyc} pending — action required` : 'No pending reviews'}</p>
                 </div>
               </div>
-              <ChevronRight style={{ width: 20, height: 20, color: '#00CEC9' }} />
+              <ChevronRight style={{ width: 20, height: 20, color: stats.pending_kyc > 0 ? '#ffc107' : '#00CEC9' }} />
             </div>
           </Link>
 
@@ -256,9 +280,6 @@ export default function AdminMainDashboardPage() {
             </table>
           </div>
 
-          {filteredUsers.length > 20 && (
-            <p style={{ fontSize: 12, color: '#8FA3BF', marginTop: 16, textAlign: 'center' }}>Showing 20 of {filteredUsers.length} users</p>
-          )}
           {filteredUsers.length === 0 && (
             <div style={{ textAlign: 'center', padding: '40px 0' }}>
               <p style={{ color: '#8FA3BF', fontSize: 14 }}>No users match your search.</p>
@@ -277,7 +298,6 @@ export default function AdminMainDashboardPage() {
             <p style={{ fontSize: 14, color: '#8FA3BF' }}>Admin action logs will appear here</p>
           </div>
         </div>
-
       </main>
 
       {/* USER DETAIL MODAL */}
@@ -327,12 +347,8 @@ export default function AdminMainDashboardPage() {
                   <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0 }}>This action cannot be undone. Are you sure?</p>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={handleDeleteUser} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: '#ff6b6b', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
-                    Confirm Delete
-                  </button>
-                  <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'transparent', color: '#8FA3BF', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
-                    Cancel
-                  </button>
+                  <button onClick={handleDeleteUser} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: '#ff6b6b', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>Confirm Delete</button>
+                  <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'transparent', color: '#8FA3BF', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>Cancel</button>
                 </div>
               </div>
             ) : (
@@ -342,9 +358,7 @@ export default function AdminMainDashboardPage() {
                     <Trash2 style={{ width: 15, height: 15 }} /> Delete User
                   </button>
                 )}
-                <button onClick={() => setSelectedUser(null)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'transparent', color: '#8FA3BF', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
-                  Close
-                </button>
+                <button onClick={() => setSelectedUser(null)} style={{ flex: 1, padding: '12px', borderRadius: 12, backgroundColor: 'transparent', color: '#8FA3BF', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>Close</button>
               </div>
             )}
           </div>
