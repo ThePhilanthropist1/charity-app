@@ -16,44 +16,76 @@ export function KYCForm() {
   const [faceCaptureDataUrl, setFaceCaptureDataUrl] = useState('');
   const [faceCaptureUrl, setFaceCaptureUrl] = useState('');
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const { upload } = useFileUpload();
   const { submit } = useSubmitKYC();
 
   const startCamera = useCallback(async () => {
     setError('');
+    setCameraReady(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCameraActive(true);
+      streamRef.current = stream;
+      setCameraActive(true);
+
+      // Use setTimeout to ensure the video element is rendered before assigning srcObject
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play()
+              .then(() => setCameraReady(true))
+              .catch((e) => {
+                console.error('Video play error:', e);
+                setError('Camera started but could not display. Try clicking Start Camera again.');
+              });
+          };
+        }
+      }, 100);
+    } catch (err: any) {
+      console.error('Camera error:', err);
+      if (err.name === 'NotAllowedError') {
+        setError('Camera permission denied. Please allow camera access in your browser settings.');
+      } else if (err.name === 'NotFoundError') {
+        setError('No camera found. Please connect a camera and try again.');
+      } else {
+        setError('Cannot access camera: ' + (err.message || 'Unknown error'));
       }
-    } catch (err) {
-      setError('Cannot access camera. Please check browser permissions and try again.');
     }
   }, []);
 
   const stopCamera = useCallback(() => {
-    if (videoRef.current?.srcObject instanceof MediaStream) {
-      videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
     setCameraActive(false);
+    setCameraReady(false);
   }, []);
 
   const captureFace = useCallback(() => {
-    if (videoRef.current && canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-        const imageData = canvasRef.current.toDataURL('image/jpeg', 0.9);
-        setFaceCaptureDataUrl(imageData);
-        stopCamera();
-      }
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = canvas.toDataURL('image/jpeg', 0.9);
+      setFaceCaptureDataUrl(imageData);
+      stopCamera();
     }
   }, [stopCamera]);
 
@@ -69,7 +101,6 @@ export function KYCForm() {
     setGovernmentIdFile(file);
     setError('');
 
-    // Show preview for images
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = (ev) => setGovernmentIdPreview(ev.target?.result as string);
@@ -199,9 +230,7 @@ export function KYCForm() {
       {error && (
         <div style={{ display: 'flex', gap: 10, padding: '14px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 12 }}>
           <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0, marginTop: 1 }} />
-          <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0 }}>{error}</p>
-          </div>
+          <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0, flex: 1 }}>{error}</p>
           <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', padding: 0 }}>
             <X style={{ width: 14, height: 14 }} />
           </button>
@@ -211,7 +240,7 @@ export function KYCForm() {
       {/* Card */}
       <div style={{ backgroundColor: '#0F1F35', border: '1px solid rgba(0,206,201,0.15)', borderRadius: 20, padding: '32px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
 
-        {/* STEP 1 - Government ID */}
+        {/* STEP 1 */}
         {step === 1 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 20, borderBottom: '1px solid rgba(0,206,201,0.1)' }}>
@@ -303,13 +332,30 @@ export function KYCForm() {
 
             {cameraActive && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <video ref={videoRef} autoPlay playsInline style={{ width: '100%', borderRadius: 14, backgroundColor: '#000', border: '1px solid rgba(0,206,201,0.2)' }} />
+                <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', backgroundColor: '#000', border: '1px solid rgba(0,206,201,0.2)' }}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{ width: '100%', display: 'block', borderRadius: 14 }}
+                  />
+                  {!cameraReady && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(10,22,40,0.8)', borderRadius: 14 }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ width: 36, height: 36, border: '3px solid rgba(0,206,201,0.3)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 10px' }} />
+                        <p style={{ fontSize: 13, color: '#8FA3BF' }}>Starting camera...</p>
+                        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={stopCamera} style={{ flex: 1, padding: '12px', borderRadius: 12, background: 'transparent', color: '#8FA3BF', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
                     Cancel
                   </button>
-                  <button onClick={captureFace} style={{ flex: 2, padding: '12px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                    <Camera style={{ width: 18, height: 18 }} /> Capture Photo
+                  <button onClick={captureFace} disabled={!cameraReady} style={{ flex: 2, padding: '12px', borderRadius: 12, background: cameraReady ? 'linear-gradient(to right, #00CEC9, #00B894)' : 'rgba(0,206,201,0.3)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: cameraReady ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <Camera style={{ width: 18, height: 18 }} /> {cameraReady ? 'Capture Photo' : 'Waiting...'}
                   </button>
                 </div>
               </div>
@@ -319,7 +365,7 @@ export function KYCForm() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden' }}>
                   <img src={faceCaptureDataUrl} alt="Face capture" style={{ width: '100%', borderRadius: 14, border: '1px solid rgba(0,206,201,0.2)' }} />
-                  <div style={{ position: 'absolute', top: 12, right: 12, padding: '4px 12px', borderRadius: 999, backgroundColor: 'rgba(0,184,148,0.9)', color: 'white', fontSize: 12, fontWeight: 600 }}>Captured</div>
+                  <div style={{ position: 'absolute', top: 12, right: 12, padding: '4px 12px', borderRadius: 999, backgroundColor: 'rgba(0,184,148,0.9)', color: 'white', fontSize: 12, fontWeight: 600 }}>Captured ✓</div>
                 </div>
                 <div style={{ display: 'flex', gap: 12 }}>
                   <button onClick={() => { setFaceCaptureDataUrl(''); setFaceCaptureUrl(''); }} style={{ flex: 1, padding: '12px', borderRadius: 12, background: 'transparent', color: '#00CEC9', fontWeight: 700, fontSize: 14, border: '1px solid rgba(0,206,201,0.4)', cursor: 'pointer' }}>
@@ -378,7 +424,7 @@ export function KYCForm() {
         )}
       </div>
 
-      <canvas ref={canvasRef} width={1280} height={720} style={{ display: 'none' }} />
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
     </div>
   );
 }
