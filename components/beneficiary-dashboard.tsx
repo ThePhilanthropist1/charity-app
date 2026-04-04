@@ -20,32 +20,38 @@ export function BeneficiaryActivationFlow() {
   const walletAddress = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
 
   useEffect(() => {
-    const ua = navigator.userAgent || '';
-    const inPiBrowser = ua.includes('PiBrowser') || ua.includes('Pi Network');
-    setIsPiBrowser(inPiBrowser);
+    const checkAndInitPi = () => {
+      const ua = navigator.userAgent || '';
+      const Pi = (window as any).Pi;
 
-    // Initialize Pi SDK if in Pi Browser
-    if (inPiBrowser) {
-      const initPi = () => {
-        const Pi = (window as any).Pi;
-        if (Pi) {
-          try {
-            Pi.init({ version: '2.0', sandbox: false });
-            setPiReady(true);
-          } catch (e) {
-            console.error('Pi init error:', e);
-          }
+      // window.Pi existing is the most reliable check
+      const inPiBrowser =
+        !!Pi ||
+        ua.includes('PiBrowser') ||
+        ua.includes('Pi Network') ||
+        ua.includes('PiNetwork') ||
+        ua.toLowerCase().includes('pi browser');
+
+      setIsPiBrowser(inPiBrowser);
+
+      if (inPiBrowser && Pi) {
+        try {
+          Pi.init({ version: '2.0', sandbox: false });
+          setPiReady(true);
+        } catch (e) {
+          console.error('Pi init error:', e);
         }
-      };
-
-      // Try immediately, then retry after a delay if SDK not loaded yet
-      if ((window as any).Pi) {
-        initPi();
-      } else {
-        const timer = setTimeout(initPi, 1500);
-        return () => clearTimeout(timer);
       }
-    }
+    };
+
+    // Run immediately
+    checkAndInitPi();
+
+    // Also retry after 500ms and 2s in case Pi SDK loads after component mounts
+    const t1 = setTimeout(checkAndInitPi, 500);
+    const t2 = setTimeout(checkAndInitPi, 2000);
+
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
   const selectMethod = (id: 'pi' | 'wallet' | 'philanthropist') => {
@@ -68,14 +74,12 @@ export function BeneficiaryActivationFlow() {
       const Pi = (window as any).Pi;
       if (!Pi) throw new Error('Pi SDK not loaded. Please refresh and try again.');
 
-      // Authenticate the user with Pi Network first
       const authResult = await new Promise<any>((resolve, reject) => {
         Pi.authenticate(
           ['payments', 'username'],
           (incompletePayment: any) => {
-            // Handle any incomplete payment from a previous session
             if (incompletePayment) {
-              console.log('Incomplete Pi payment found, completing:', incompletePayment.identifier);
+              console.log('Incomplete Pi payment found:', incompletePayment.identifier);
             }
           }
         ).then(resolve).catch(reject);
@@ -85,7 +89,6 @@ export function BeneficiaryActivationFlow() {
         throw new Error('Pi authentication failed. Please ensure you are logged into Pi Browser.');
       }
 
-      // Create the payment
       await Pi.createPayment(
         {
           amount: 6.0,
@@ -98,32 +101,18 @@ export function BeneficiaryActivationFlow() {
               const token = localStorage.getItem('auth_token');
               await fetch('/api/activation', {
                 method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer ' + token,
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
                 body: JSON.stringify({ action: 'approve_pi', payment_id: paymentId }),
               });
-            } catch (e) {
-              console.error('Server approval error:', e);
-            }
+            } catch (e) { console.error('Server approval error:', e); }
           },
           onReadyForServerCompletion: async (paymentId: string, txid: string) => {
             try {
               const token = localStorage.getItem('auth_token');
               const response = await fetch('/api/activation', {
                 method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer ' + token,
-                },
-                body: JSON.stringify({
-                  action: 'pi_payment',
-                  activation_method: 'pi_payment',
-                  payment_id: paymentId,
-                  txid,
-                  amount_pi: 6.0,
-                }),
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify({ action: 'pi_payment', activation_method: 'pi_payment', payment_id: paymentId, txid, amount_pi: 6.0 }),
               });
               const result = await response.json();
               if (result.success) setSuccess(true);
@@ -133,14 +122,8 @@ export function BeneficiaryActivationFlow() {
             }
             setLoading(false);
           },
-          onCancel: () => {
-            setError('Payment was cancelled.');
-            setLoading(false);
-          },
-          onError: (err: any) => {
-            setError(err?.message || 'Pi payment failed. Please try again.');
-            setLoading(false);
-          },
+          onCancel: () => { setError('Payment was cancelled.'); setLoading(false); },
+          onError: (err: any) => { setError(err?.message || 'Pi payment failed. Please try again.'); setLoading(false); },
         }
       );
     } catch (err: any) {
@@ -216,8 +199,13 @@ export function BeneficiaryActivationFlow() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 15, color: 'white' }}>{m.title}</span>
                   {m.id === 'pi' && (
-                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, backgroundColor: isPiBrowser ? (piReady ? 'rgba(0,184,148,0.2)' : 'rgba(255,193,7,0.15)') : 'rgba(255,193,7,0.15)', color: isPiBrowser ? (piReady ? '#00B894' : '#ffc107') : '#ffc107', fontWeight: 600, border: '1px solid ' + (isPiBrowser ? (piReady ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)') : 'rgba(255,193,7,0.3)') }}>
-                      {isPiBrowser ? (piReady ? 'Ready' : 'Initializing...') : 'Pi Browser Only'}
+                    <span style={{
+                      fontSize: 10, padding: '2px 8px', borderRadius: 999, fontWeight: 600,
+                      backgroundColor: isPiBrowser ? (piReady ? 'rgba(0,184,148,0.2)' : 'rgba(255,193,7,0.15)') : 'rgba(255,193,7,0.15)',
+                      color: isPiBrowser ? (piReady ? '#00B894' : '#ffc107') : '#ffc107',
+                      border: '1px solid ' + (isPiBrowser ? (piReady ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)') : 'rgba(255,193,7,0.3)')
+                    }}>
+                      {isPiBrowser ? (piReady ? '✓ Ready' : 'Initializing...') : 'Pi Browser Only'}
                     </span>
                   )}
                 </div>
@@ -267,10 +255,7 @@ export function BeneficiaryActivationFlow() {
                         Processing Pi Payment...
                       </>
                     ) : (
-                      <>
-                        <Coins style={{ width: 16, height: 16 }} />
-                        Pay 6.0 Pi
-                      </>
+                      <><Coins style={{ width: 16, height: 16 }} /> Pay 6.0 Pi</>
                     )}
                   </button>
                 </div>
