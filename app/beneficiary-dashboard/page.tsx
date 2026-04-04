@@ -208,6 +208,7 @@ export default function BeneficiaryDashboardPage() {
     } finally { setSaving(false); }
   };
 
+  // ── LOADING STATE ──
   if (authLoading || loading) {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -222,7 +223,21 @@ export default function BeneficiaryDashboardPage() {
 
   const isActivated = balance?.payment_status === 'verified';
 
-  // Philanthropist card — only shown to activated beneficiaries
+  // ── REDIRECT UNACTIVATED NON-ADMIN USERS TO ACTIVATION PAGE ──
+  if (!isActivated && !isAdmin) {
+    router.push('/beneficiary/activation');
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 48, height: 48, border: '3px solid rgba(0,206,201,0.3)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
+          <p style={{ color: '#8FA3BF', fontSize: 14 }}>Redirecting to activation...</p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Philanthropist card — only for activated accounts ──
   const PhilanthropistCard = () => (
     <div onClick={() => router.push('/philanthropist/kyc')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.3)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -277,7 +292,7 @@ export default function BeneficiaryDashboardPage() {
               Welcome, {fullName?.split(' ')[0] || 'Beneficiary'} 👋
             </h1>
             <p style={{ fontSize: 13, color: '#8FA3BF' }}>
-              {isActivated ? 'Your account is active. Monthly distributions begin 2027.' : 'Activate your account to start receiving tokens.'}
+              Your account is active. Monthly distributions begin 2027.
             </p>
           </div>
           {isAdmin && (
@@ -290,19 +305,6 @@ export default function BeneficiaryDashboardPage() {
             </button>
           )}
         </div>
-
-        {/* ACTIVATION ALERT */}
-        {!isActivated && (
-          <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 14, backgroundColor: 'rgba(255,193,7,0.08)', border: '1px solid rgba(255,193,7,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Bell style={{ width: 16, height: 16, color: '#ffc107', flexShrink: 0 }} />
-              <p style={{ fontSize: 13, color: '#ffd54f' }}>Account not activated. Activate to receive 500 tokens monthly.</p>
-            </div>
-            <button onClick={() => router.push('/beneficiary/activation')} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 10, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 12, border: 'none', cursor: 'pointer' }}>
-              Activate
-            </button>
-          </div>
-        )}
 
         {saveMsg && (
           <div style={{ marginBottom: 14, padding: '11px 16px', borderRadius: 10, backgroundColor: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.3)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -329,8 +331,6 @@ export default function BeneficiaryDashboardPage() {
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* STATS */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               {[
                 { label: 'Current Balance', value: balance?.current_balance?.toLocaleString() || '0', sub: 'Charity Tokens' },
@@ -345,13 +345,10 @@ export default function BeneficiaryDashboardPage() {
               ))}
             </div>
 
-            {/* MEMBERSHIP CARD */}
             <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
 
-            {/* BECOME A PHILANTHROPIST — only for activated accounts */}
             {isActivated && <PhilanthropistCard />}
 
-            {/* ADMIN PANEL — only for admin */}
             {isAdmin && (
               <div onClick={() => router.push('/admin')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(108,63,200,0.4)', background: 'linear-gradient(135deg, rgba(108,63,200,0.08) 0%, rgba(155,89,182,0.08) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -372,8 +369,6 @@ export default function BeneficiaryDashboardPage() {
         {/* ── PROFILE TAB ── */}
         {activeTab === 'profile' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* PROFILE PICTURE */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Profile Picture</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -395,7 +390,6 @@ export default function BeneficiaryDashboardPage() {
               </div>
             </div>
 
-            {/* PERSONAL INFO */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>Personal Information</p>
@@ -440,15 +434,12 @@ export default function BeneficiaryDashboardPage() {
               </div>
             </div>
 
-            {/* MEMBERSHIP CARD PREVIEW */}
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Your Membership ID Card</p>
               <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
             </div>
 
-            {/* BECOME A PHILANTHROPIST — only for activated accounts */}
             {isActivated && <PhilanthropistCard />}
-
           </div>
         )}
 
@@ -460,7 +451,7 @@ export default function BeneficiaryDashboardPage() {
               <div style={{ textAlign: 'center', padding: '36px 0' }}>
                 <Coins style={{ width: 36, height: 36, color: '#4A5568', margin: '0 auto 10px' }} />
                 <p style={{ fontSize: 13, color: '#8FA3BF' }}>No transactions yet.</p>
-                <p style={{ fontSize: 12, color: '#4A5568', marginTop: 4 }}>Activate your account to start receiving tokens.</p>
+                <p style={{ fontSize: 12, color: '#4A5568', marginTop: 4 }}>Token distributions begin in 2027.</p>
               </div>
             ) : (
               <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>

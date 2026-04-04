@@ -23,6 +23,13 @@ export function BeneficiaryActivationFlow() {
     setIsPiBrowser(ua.includes('PiBrowser') || ua.includes('Pi Network'));
   }, []);
 
+  // Clear error and transaction hash when switching methods
+  const selectMethod = (id: 'pi' | 'wallet' | 'philanthropist') => {
+    setError('');
+    setTransactionHash('');
+    setMethod(method === id ? null : id);
+  };
+
   const copyWallet = () => {
     navigator.clipboard.writeText(walletAddress);
     setCopied(true);
@@ -62,14 +69,14 @@ export function BeneficiaryActivationFlow() {
   };
 
   const handleWalletTransfer = async () => {
-    if (!transactionHash.trim()) { setError('Please enter transaction hash'); return; }
+    if (!transactionHash.trim()) { setError('Please enter your transaction hash'); return; }
     setLoading(true); setError('');
     try {
       const token = localStorage.getItem('auth_token');
       const response = await fetch('/api/activation', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ action: 'wallet_transfer', activation_method: 'wallet_transfer', transaction_hash: transactionHash }) });
       const result = await response.json();
       if (result.success) setSuccess(true);
-      else setError(result.error || 'Verification failed');
+      else setError(result.error || 'Verification failed. Please check your transaction hash and try again.');
     } finally { setLoading(false); }
   };
 
@@ -96,15 +103,21 @@ export function BeneficiaryActivationFlow() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+      {/* Only show error after a user action — never on initial load */}
       {error && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 12 }}>
           <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0 }}>{error}</p>
+          <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0, flex: 1 }}>{error}</p>
+          <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+            <CheckCircle style={{ width: 14, height: 14 }} />
+          </button>
         </div>
       )}
 
       {methods.map((m) => (
-        <div key={m.id} onClick={() => setMethod(method === m.id as any ? null : m.id as any)}
+        <div key={m.id}
+          onClick={() => selectMethod(m.id as any)}
           style={{ padding: '18px 20px', borderRadius: 16, border: '1px solid ' + (method === m.id ? 'rgba(0,206,201,0.5)' : 'rgba(0,206,201,0.15)'), backgroundColor: method === m.id ? 'rgba(0,206,201,0.04)' : 'rgba(255,255,255,0.02)', cursor: 'pointer', transition: 'all 0.2s', boxShadow: method === m.id ? '0 0 24px rgba(0,206,201,0.08)' : 'none' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: method === m.id ? 16 : 0 }}>
@@ -159,7 +172,12 @@ export function BeneficiaryActivationFlow() {
               <div style={{ padding: '10px 14px', backgroundColor: 'rgba(255,193,7,0.05)', borderRadius: 10, border: '1px solid rgba(255,193,7,0.15)' }}>
                 <p style={{ fontSize: 12, color: '#ffc107', margin: 0, lineHeight: 1.6 }}>⚠️ Only send on <strong>BNB Smart Chain (BEP20)</strong>. Sending on other networks will result in loss of funds.</p>
               </div>
-              <input placeholder="Paste transaction hash here" value={transactionHash} onChange={(e) => setTransactionHash(e.target.value)} style={{ width: '100%', padding: '12px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+              <input
+                placeholder="Paste transaction hash here"
+                value={transactionHash}
+                onChange={(e) => setTransactionHash(e.target.value)}
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
               <button onClick={handleWalletTransfer} disabled={loading} style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
                 {loading ? 'Verifying...' : 'Verify Payment'}
               </button>
@@ -169,8 +187,6 @@ export function BeneficiaryActivationFlow() {
           {/* VIA PHILANTHROPIST */}
           {method === 'philanthropist' && m.id === 'philanthropist' && (
             <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-
-              {/* Step-by-step instructions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
                 {/* Step 1 */}
@@ -181,12 +197,7 @@ export function BeneficiaryActivationFlow() {
                     <p style={{ fontSize: 12, color: '#8FA3BF', margin: '0 0 10px', lineHeight: 1.6 }}>
                       Join our Telegram group to find a verified philanthropist near you. Each philanthropist lists their region and payment details.
                     </p>
-                    <a
-                      href="https://t.me/CharityTokenProject1"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, backgroundColor: 'rgba(0,136,204,0.15)', border: '1px solid rgba(0,136,204,0.3)', color: '#67e8f9', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}
-                    >
+                    <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, backgroundColor: 'rgba(0,136,204,0.15)', border: '1px solid rgba(0,136,204,0.3)', color: '#67e8f9', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
                       <Send style={{ width: 13, height: 13 }} /> Open Telegram Group
                       <ExternalLink style={{ width: 11, height: 11 }} />
                     </a>
@@ -221,14 +232,13 @@ export function BeneficiaryActivationFlow() {
                   <div>
                     <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Wait for Activation Confirmation</p>
                     <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
-                      Once the philanthropist activates your account, you will receive a confirmation. Log out and log back in to see your updated account status. Philanthropists are required to process all submissions within 24 hours.
+                      Once the philanthropist activates your account, log out and log back in to see your updated status. Philanthropists are required to process all submissions within <strong style={{ color: '#ffc107' }}>24 hours</strong>.
                     </p>
                   </div>
                 </div>
-
               </div>
 
-              {/* Your email reminder */}
+              {/* Email reminder */}
               <div style={{ padding: '12px 16px', backgroundColor: 'rgba(0,206,201,0.06)', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <MessageCircle style={{ width: 15, height: 15, color: '#00CEC9', flexShrink: 0 }} />
                 <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>
@@ -236,18 +246,12 @@ export function BeneficiaryActivationFlow() {
                 </p>
               </div>
 
-              {/* CTA button */}
-              <a
-                href="https://t.me/CharityTokenProject1"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 14, textDecoration: 'none', boxSizing: 'border-box' }}
-              >
+              {/* CTA */}
+              <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 14, textDecoration: 'none', boxSizing: 'border-box' }}>
                 <Send style={{ width: 16, height: 16 }} />
                 Go to Telegram Group
                 <ExternalLink style={{ width: 14, height: 14 }} />
               </a>
-
             </div>
           )}
         </div>
@@ -335,7 +339,7 @@ export function BeneficiaryDashboard() {
                 <TrendingUp style={{ width: 28, height: 28, color: '#00CEC9' }} />
               </div>
               <p style={{ color: 'white', fontWeight: 600, marginBottom: 8 }}>No distributions yet</p>
-              <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.6 }}>Activate your account to start receiving 500 CT monthly.</p>
+              <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.6 }}>Token distributions begin in 2027.</p>
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
