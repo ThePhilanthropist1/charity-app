@@ -22,15 +22,17 @@ export function BeneficiaryActivationFlow() {
   useEffect(() => {
     const checkAndInitPi = () => {
       const ua = navigator.userAgent || '';
-      const Pi = (window as any).Pi;
 
-      // window.Pi existing is the most reliable check
-      const inPiBrowser =
-        !!Pi ||
+      // STRICT check — only Pi Browser has 'PiBrowser' in its UA string
+      // Do NOT use !!window.Pi alone — that fires in regular browsers too
+      const strictPiBrowser =
         ua.includes('PiBrowser') ||
         ua.includes('Pi Network') ||
-        ua.includes('PiNetwork') ||
-        ua.toLowerCase().includes('pi browser');
+        ua.includes('PiNetwork');
+
+      // Secondary check: window.Pi exists AND strict UA matched
+      const Pi = (window as any).Pi;
+      const inPiBrowser = strictPiBrowser || (!!Pi && strictPiBrowser);
 
       setIsPiBrowser(inPiBrowser);
 
@@ -44,13 +46,9 @@ export function BeneficiaryActivationFlow() {
       }
     };
 
-    // Run immediately
     checkAndInitPi();
-
-    // Also retry after 500ms and 2s in case Pi SDK loads after component mounts
-    const t1 = setTimeout(checkAndInitPi, 500);
-    const t2 = setTimeout(checkAndInitPi, 2000);
-
+    const t1 = setTimeout(checkAndInitPi, 1000);
+    const t2 = setTimeout(checkAndInitPi, 3000);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
@@ -70,26 +68,33 @@ export function BeneficiaryActivationFlow() {
     if (!isPiBrowser) return;
     setLoading(true);
     setError('');
+
     try {
       const Pi = (window as any).Pi;
       if (!Pi) throw new Error('Pi SDK not loaded. Please refresh and try again.');
 
-      const authResult = await new Promise<any>((resolve, reject) => {
-        Pi.authenticate(
+      // Step 1: Authenticate — Pi SDK returns a promise directly
+      let authResult: any;
+      try {
+        authResult = await Pi.authenticate(
           ['payments', 'username'],
           (incompletePayment: any) => {
+            // Handle incomplete payment from previous session
             if (incompletePayment) {
-              console.log('Incomplete Pi payment found:', incompletePayment.identifier);
+              console.log('Incomplete payment found:', incompletePayment?.identifier);
             }
           }
-        ).then(resolve).catch(reject);
-      });
-
-      if (!authResult?.user) {
-        throw new Error('Pi authentication failed. Please ensure you are logged into Pi Browser.');
+        );
+      } catch (authErr: any) {
+        throw new Error('Pi authentication failed. Make sure you are logged into Pi Browser. ' + (authErr?.message || ''));
       }
 
-      await Pi.createPayment(
+      if (!authResult?.user) {
+        throw new Error('Pi authentication returned no user. Please try again.');
+      }
+
+      // Step 2: Create payment
+      Pi.createPayment(
         {
           amount: 6.0,
           memo: 'Charity Token Account Activation',
@@ -99,12 +104,16 @@ export function BeneficiaryActivationFlow() {
           onReadyForServerApproval: async (paymentId: string) => {
             try {
               const token = localStorage.getItem('auth_token');
-              await fetch('/api/activation', {
+              const res = await fetch('/api/activation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
                 body: JSON.stringify({ action: 'approve_pi', payment_id: paymentId }),
               });
-            } catch (e) { console.error('Server approval error:', e); }
+              const data = await res.json();
+              if (!data.success) console.error('Server approval error:', data.error);
+            } catch (e) {
+              console.error('Server approval fetch error:', e);
+            }
           },
           onReadyForServerCompletion: async (paymentId: string, txid: string) => {
             try {
@@ -112,18 +121,34 @@ export function BeneficiaryActivationFlow() {
               const response = await fetch('/api/activation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                body: JSON.stringify({ action: 'pi_payment', activation_method: 'pi_payment', payment_id: paymentId, txid, amount_pi: 6.0 }),
+                body: JSON.stringify({
+                  action: 'pi_payment',
+                  activation_method: 'pi_payment',
+                  payment_id: paymentId,
+                  txid,
+                  amount_pi: 6.0,
+                }),
               });
               const result = await response.json();
-              if (result.success) setSuccess(true);
-              else setError(result.error || 'Payment completion failed. Please contact support.');
+              if (result.success) {
+                setSuccess(true);
+              } else {
+                setError(result.error || 'Payment completion failed. Contact support with TX ID: ' + txid);
+              }
             } catch (e) {
-              setError('Failed to complete payment. Please contact support with your Pi transaction ID: ' + txid);
+              setError('Completion failed. Contact support with TX ID: ' + txid);
             }
             setLoading(false);
           },
-          onCancel: () => { setError('Payment was cancelled.'); setLoading(false); },
-          onError: (err: any) => { setError(err?.message || 'Pi payment failed. Please try again.'); setLoading(false); },
+          onCancel: () => {
+            setError('Payment was cancelled.');
+            setLoading(false);
+          },
+          onError: (err: any, payment: any) => {
+            console.error('Pi payment error:', err, payment);
+            setError(err?.message || 'Pi payment failed. Please try again.');
+            setLoading(false);
+          },
         }
       );
     } catch (err: any) {
@@ -224,7 +249,7 @@ export function BeneficiaryActivationFlow() {
                   <div>
                     <p style={{ fontSize: 13, color: '#ffd54f', fontWeight: 600, margin: '0 0 4px' }}>Pi Browser Required</p>
                     <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6, margin: '0 0 10px' }}>
-                      Open this website in your Pi Browser app to pay with Pi. You can use Wallet Transfer or Via Philanthropist from any browser.
+                      Open this website in your Pi Browser app to pay with Pi. You can use Wallet Transfer or Via Philanthropist from any regular browser.
                     </p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', backgroundColor: 'rgba(0,206,201,0.06)', borderRadius: 8, border: '1px solid rgba(0,206,201,0.15)' }}>
                       <code style={{ fontSize: 11, color: '#67e8f9', wordBreak: 'break-all' }}>https://shimmering-cassata-c25449.netlify.app</code>
@@ -241,7 +266,7 @@ export function BeneficiaryActivationFlow() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ padding: '10px 14px', backgroundColor: 'rgba(0,184,148,0.05)', borderRadius: 10, border: '1px solid rgba(0,184,148,0.15)' }}>
                     <p style={{ fontSize: 12, color: '#00B894', margin: 0, lineHeight: 1.6 }}>
-                      ✓ Pi Browser detected. You will be asked to authenticate with Pi and confirm a payment of <strong>6.0 Pi</strong>.
+                      ✓ Pi Browser detected. Tap the button below to authenticate and pay <strong>6.0 Pi</strong>. Your Pi wallet will open automatically.
                     </p>
                   </div>
                   <button
@@ -252,7 +277,7 @@ export function BeneficiaryActivationFlow() {
                     {loading ? (
                       <>
                         <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                        Processing Pi Payment...
+                        Opening Pi Wallet...
                       </>
                     ) : (
                       <><Coins style={{ width: 16, height: 16 }} /> Pay 6.0 Pi</>
