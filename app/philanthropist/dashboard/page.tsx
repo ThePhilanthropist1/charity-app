@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase-client';
@@ -8,7 +8,7 @@ import Image from 'next/image';
 import {
   Users, CheckCircle, Clock, LogOut, Shield,
   AlertCircle, Home, UserCheck, Mail, MapPin,
-  Coins, Copy, RefreshCw, X, Zap, Award, Search, XCircle
+  Copy, RefreshCw, X, Zap, Award, Search, XCircle
 } from 'lucide-react';
 
 const WALLET_ADDRESS = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
@@ -18,7 +18,7 @@ const REFILL_COST_USD = 70;
 const REFILL_ACT_AMOUNT = 1000;
 const USDT_CONTRACT = '0x55d398326f99059ff775485246999027b3197955';
 
-// ── Get philanthropist record (by user_id, returns full row including pk id) ──
+// ── Get philanthropist record by user_id (with pk fallback) ──────────────────
 async function getPhilRecord(userId: string) {
   const { data: byUserId } = await supabase
     .from('philanthropists')
@@ -27,7 +27,6 @@ async function getPhilRecord(userId: string) {
     .maybeSingle();
   if (byUserId) return byUserId;
 
-  // Fallback: try matching id column
   const { data: byId } = await supabase
     .from('philanthropists')
     .select('*')
@@ -36,31 +35,31 @@ async function getPhilRecord(userId: string) {
   return byId || null;
 }
 
-// ── Deduct ACT — fetch record pk first, then update by pk ────────────────────
-async function deductACT(userId: string, currentBalance: number, currentTotal: number) {
-  const newBalance = currentBalance - ACT_PER_ACTIVATION;
-  const newTotal = currentTotal + 1;
-
-  // Step 1: get the actual primary key of the row
+// ── Deduct ACT — always updates by actual pk (record.id) ─────────────────────
+// total_activated is handled automatically by the DB trigger
+async function deductACT(userId: string, currentBalance: number) {
   const record = await getPhilRecord(userId);
   if (!record) throw new Error('Philanthropist record not found for user: ' + userId);
 
-  // Step 2: update using the row's real pk (record.id)
+  const newBalance = currentBalance - ACT_PER_ACTIVATION;
+
   const { error } = await supabase
     .from('philanthropists')
     .update({
       act_balance: newBalance,
-      total_activated: newTotal,
       updated_at: new Date().toISOString(),
     })
     .eq('id', record.id);
 
   if (error) throw error;
-  return { newBalance, newTotal };
+  return { newBalance };
 }
 
-// ── Activate a beneficiary ────────────────────────────────────────────────────
-async function activateBeneficiary(targetUserId: string): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
+// ── Activate a beneficiary (stamps philanthropist_id for per-person tracking) ─
+async function activateBeneficiary(
+  targetUserId: string,
+  philanthropistId: string
+): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
   const { data: existing } = await supabase
     .from('beneficiary_activations')
     .select('id, payment_status')
@@ -77,6 +76,7 @@ async function activateBeneficiary(targetUserId: string): Promise<{ success: boo
       .update({
         payment_status: 'verified',
         activation_method: 'philanthropist',
+        philanthropist_id: philanthropistId,
         activated_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -89,6 +89,7 @@ async function activateBeneficiary(targetUserId: string): Promise<{ success: boo
         user_id: targetUserId,
         payment_status: 'verified',
         activation_method: 'philanthropist',
+        philanthropist_id: philanthropistId,
         activated_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -113,6 +114,7 @@ export default function PhilanthropistDashboardPage() {
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showRefill, setShowRefill] = useState(false);
+  const realtimeChannel = useRef<any>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ msg, type });
@@ -125,26 +127,48 @@ export default function PhilanthropistDashboardPage() {
     const allowed = user.role === 'philanthropist' || user.role === 'admin' || user.email?.toLowerCase() === 'dinfadashe@gmail.com';
     if (!allowed) { router.push('/beneficiary-dashboard'); return; }
     loadAll();
+
+    // ── Realtime: watch THIS philanthropist's row for live balance/stat updates
+    realtimeChannel.current = supabase
+      .channel('phil-stats-' + user.id)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'philanthropists',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload: any) => {
+          setActBalance(payload.new.act_balance ?? ACT_INITIAL_BALANCE);
+          setTotalActivated(payload.new.total_activated ?? 0);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (realtimeChannel.current) supabase.removeChannel(realtimeChannel.current);
+    };
   }, [user, authLoading]);
 
   const loadAll = async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
+      // Load this philanthropist's own record
       const record = await getPhilRecord(user.id);
       setActBalance(record?.act_balance ?? ACT_INITIAL_BALANCE);
       setTotalActivated(record?.total_activated ?? 0);
 
-      // Count rejected beneficiaries this philanthropist has handled
-      // We track rejections by payment_status = 'rejected' in beneficiary_activations
-      // If your schema stores philanthropist_id on the activation row, filter by that.
-      // Currently we use total_activated from the record and fetch rejected count separately.
+      // Count rejections done by THIS philanthropist only
       const { count: rejectedCount } = await supabase
         .from('beneficiary_activations')
         .select('id', { count: 'exact', head: true })
-        .eq('payment_status', 'rejected');
+        .eq('payment_status', 'rejected')
+        .eq('philanthropist_id', user.id);
       setTotalRejected(rejectedCount ?? 0);
 
+      // Pending queue is shared — all philanthropists see the same queue
       const { data: pending } = await supabase
         .from('beneficiary_activations')
         .select(`*, users:user_id (id, full_name, email, country, profile_picture)`)
@@ -168,7 +192,7 @@ export default function PhilanthropistDashboardPage() {
 
     setActivating(targetUserId);
     try {
-      const result = await activateBeneficiary(targetUserId);
+      const result = await activateBeneficiary(targetUserId, user.id);
 
       if (result.alreadyActive) {
         showToast(`ℹ️ This account is already activated. No ACT was deducted.`, 'info');
@@ -181,10 +205,9 @@ export default function PhilanthropistDashboardPage() {
         return;
       }
 
-      // Deduct 10 ACT only on successful NEW activation
-      const { newBalance, newTotal } = await deductACT(user.id, actBalance, totalActivated);
+      // Deduct ACT — DB trigger auto-increments total_activated
+      const { newBalance } = await deductACT(user.id, actBalance);
       setActBalance(newBalance);
-      setTotalActivated(newTotal);
 
       const name = item.users?.full_name || item.users?.email || 'User';
       showToast(`✅ ${name} activated! −${ACT_PER_ACTIVATION} ACT deducted. Balance: ${newBalance} ACT`, 'success');
@@ -204,12 +227,14 @@ export default function PhilanthropistDashboardPage() {
         .from('beneficiary_activations')
         .update({
           payment_status: 'rejected',
+          philanthropist_id: user.id,       // stamp who rejected
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', targetUserId);
 
       if (error) throw error;
 
+      setTotalRejected(prev => prev + 1);
       const name = item.users?.full_name || item.users?.email || 'User';
       showToast(`${name} has been rejected. No ACT was deducted.`, 'info');
       await loadAll();
@@ -336,11 +361,11 @@ export default function PhilanthropistDashboardPage() {
           )}
         </div>
 
-        {/* STATS — now 4 cards including Rejected */}
+        {/* STATS — all scoped to this specific philanthropist */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 24 }}>
           {[
             {
-              label: 'Total Activated',
+              label: 'My Total Activated',
               value: totalActivated,
               color: '#00B894',
               bg: 'rgba(0,184,148,0.08)',
@@ -348,7 +373,7 @@ export default function PhilanthropistDashboardPage() {
               icon: <UserCheck style={{ width: 18, height: 18, color: '#00B894' }} />,
             },
             {
-              label: 'Total Rejected',
+              label: 'My Total Rejected',
               value: totalRejected,
               color: '#ff6b6b',
               bg: 'rgba(255,107,107,0.08)',
@@ -545,7 +570,8 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlre
 
     setActivating(true);
     try {
-      const result = await activateBeneficiary(foundUser.id);
+      // Pass userId so philanthropist_id is stamped on the row
+      const result = await activateBeneficiary(foundUser.id, userId);
 
       if (result.alreadyActive) {
         onAlreadyActive(name);
@@ -558,9 +584,9 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlre
         return;
       }
 
-      // Deduct 10 ACT only on success
-      const { newBalance, newTotal } = await deductACT(userId, actBalance, totalActivated);
-      onSuccess(newBalance, newTotal, name);
+      // Deduct ACT — DB trigger handles total_activated
+      const { newBalance } = await deductACT(userId, actBalance);
+      onSuccess(newBalance, totalActivated + 1, name);
       setFoundUser(null);
       setEmail('');
     } catch (e: any) {
@@ -627,7 +653,9 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlre
                   disabled={activating || actBalance < ACT_PER_ACTIVATION}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '11px 20px', borderRadius: 10, background: actBalance < ACT_PER_ACTIVATION ? 'rgba(255,107,107,0.15)' : 'linear-gradient(to right, #00B894, #00CEC9)', color: actBalance < ACT_PER_ACTIVATION ? '#ff6b6b' : 'white', fontWeight: 700, fontSize: 13, border: actBalance < ACT_PER_ACTIVATION ? '1px solid rgba(255,107,107,0.3)' : 'none', cursor: (activating || actBalance < ACT_PER_ACTIVATION) ? 'not-allowed' : 'pointer', opacity: activating ? 0.7 : 1 }}
                 >
-                  {activating ? <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Activating...</> : <><CheckCircle style={{ width: 15, height: 15 }} /> Activate</>}
+                  {activating
+                    ? <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Activating...</>
+                    : <><CheckCircle style={{ width: 15, height: 15 }} /> Activate</>}
                 </button>
                 <span style={{ fontSize: 10, color: '#8FA3BF' }}>costs {ACT_PER_ACTIVATION} ACT</span>
               </>
@@ -699,7 +727,6 @@ function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
 
       const newBalance = currentBalance + REFILL_ACT_AMOUNT;
 
-      // Fetch record pk first, then update by pk — same fix as deductACT
       const record = await getPhilRecord(userId);
       if (!record) { setError('Philanthropist record not found. Contact support.'); setLoading(false); return; }
 
@@ -767,7 +794,9 @@ function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
           </p>
         </div>
         <button onClick={handleSubmit} disabled={loading || !txHash.trim()} style={{ width: '100%', padding: '14px', borderRadius: 12, background: (loading || !txHash.trim()) ? 'rgba(0,206,201,0.15)' : 'linear-gradient(to right, #00B894, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: (loading || !txHash.trim()) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          {loading ? <><div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />Verifying...</> : <><RefreshCw style={{ width: 18, height: 18 }} />Verify & Refill {REFILL_ACT_AMOUNT} ACT</>}
+          {loading
+            ? <><div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />Verifying...</>
+            : <><RefreshCw style={{ width: 18, height: 18 }} />Verify & Refill {REFILL_ACT_AMOUNT} ACT</>}
         </button>
       </div>
     </div>
