@@ -18,7 +18,6 @@ export async function getUser(userId: string): Promise<User | null> {
   return data;
 }
 
-// Case-insensitive email lookup
 export async function getUserByEmail(email: string): Promise<User | null> {
   const { data, error } = await supabase
     .from('users')
@@ -29,7 +28,6 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   return data;
 }
 
-// Case-insensitive username lookup
 export async function getUserByUsername(username: string): Promise<User | null> {
   const { data, error } = await supabase
     .from('users')
@@ -41,7 +39,6 @@ export async function getUserByUsername(username: string): Promise<User | null> 
 }
 
 export async function createUser(userData: Partial<User> & { password_hash: string }): Promise<User | null> {
-  // Always store email as lowercase
   const normalizedData = {
     ...userData,
     email: userData.email?.toLowerCase().trim(),
@@ -136,23 +133,32 @@ export async function rejectKYCSubmission(submissionId: string, adminId: string,
 
 // ── BENEFICIARY ACTIVATION ────────────────────────────────────────────────────
 
+// Always fetch the most recent record, using maybeSingle to avoid errors
+// when multiple rows exist (legacy data)
 export async function getBeneficiaryActivation(userId: string): Promise<BeneficiaryActivation | null> {
   const { data, error } = await supabase
     .from('beneficiary_activations')
     .select('*')
     .eq('user_id', userId)
-    .single();
-  if (error) return null;
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) { console.error('[db] Error fetching activation:', error); return null; }
   return data;
 }
 
+// Upsert — updates existing record or inserts new one
+// Requires unique constraint on user_id column
 export async function createBeneficiaryActivation(activationData: Partial<BeneficiaryActivation>): Promise<BeneficiaryActivation | null> {
   const { data, error } = await supabase
     .from('beneficiary_activations')
-    .insert([activationData])
+    .upsert(
+      [{ ...activationData, updated_at: new Date().toISOString() }],
+      { onConflict: 'user_id', ignoreDuplicates: false }
+    )
     .select()
     .single();
-  if (error) { console.error('[db] Error creating activation:', error); return null; }
+  if (error) { console.error('[db] Error upserting activation:', error); return null; }
   return data;
 }
 
@@ -223,7 +229,6 @@ export async function getUsersByRole(role: string): Promise<User[]> {
   return data || [];
 }
 
-// Only count verified beneficiaries
 export async function getActiveBeneficiariesCount(): Promise<number> {
   const { count, error } = await supabase
     .from('beneficiary_activations')
