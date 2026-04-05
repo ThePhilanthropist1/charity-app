@@ -36,7 +36,6 @@ async function getPhilRecord(userId: string) {
 }
 
 // ── Deduct ACT — always updates by actual pk (record.id) ─────────────────────
-// total_activated is handled automatically by the DB trigger
 async function deductACT(userId: string, currentBalance: number) {
   const record = await getPhilRecord(userId);
   if (!record) throw new Error('Philanthropist record not found for user: ' + userId);
@@ -128,7 +127,7 @@ export default function PhilanthropistDashboardPage() {
     if (!allowed) { router.push('/beneficiary-dashboard'); return; }
     loadAll();
 
-    // ── Realtime: watch THIS philanthropist's row for live balance/stat updates
+    // ── Realtime: watch philanthropists row for live ACT balance updates ──
     realtimeChannel.current = supabase
       .channel('phil-stats-' + user.id)
       .on(
@@ -140,8 +139,20 @@ export default function PhilanthropistDashboardPage() {
           filter: `user_id=eq.${user.id}`,
         },
         (payload: any) => {
+          // Only update ACT balance from realtime — counts come from loadAll
           setActBalance(payload.new.act_balance ?? ACT_INITIAL_BALANCE);
-          setTotalActivated(payload.new.total_activated ?? 0);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'beneficiary_activations',
+        },
+        () => {
+          // Any change to activations — recount everything fresh
+          refreshCounts();
         }
       )
       .subscribe();
@@ -151,30 +162,64 @@ export default function PhilanthropistDashboardPage() {
     };
   }, [user, authLoading]);
 
+  // ── Recount activated + rejected + pending directly from beneficiary_activations
+  const refreshCounts = async () => {
+    if (!user?.id) return;
+    try {
+      const [{ count: activated }, { count: rejected }, { data: pending }] = await Promise.all([
+        supabase
+          .from('beneficiary_activations')
+          .select('id', { count: 'exact', head: true })
+          .eq('payment_status', 'verified')
+          .eq('philanthropist_id', user.id),
+        supabase
+          .from('beneficiary_activations')
+          .select('id', { count: 'exact', head: true })
+          .eq('payment_status', 'rejected')
+          .eq('philanthropist_id', user.id),
+        supabase
+          .from('beneficiary_activations')
+          .select(`*, users:user_id (id, full_name, email, country, profile_picture)`)
+          .eq('payment_status', 'pending')
+          .order('created_at', { ascending: true }),
+      ]);
+      setTotalActivated(activated ?? 0);
+      setTotalRejected(rejected ?? 0);
+      setPendingUsers(pending || []);
+    } catch (e) { console.error('refreshCounts error:', e); }
+  };
+
+  // ── Full load on mount — ACT balance + all counts ─────────────────────────
   const loadAll = async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      // Load this philanthropist's own record
+      // ACT balance from philanthropists row
       const record = await getPhilRecord(user.id);
       setActBalance(record?.act_balance ?? ACT_INITIAL_BALANCE);
-      setTotalActivated(record?.total_activated ?? 0);
 
-      // Count rejections done by THIS philanthropist only
-      const { count: rejectedCount } = await supabase
-        .from('beneficiary_activations')
-        .select('id', { count: 'exact', head: true })
-        .eq('payment_status', 'rejected')
-        .eq('philanthropist_id', user.id);
-      setTotalRejected(rejectedCount ?? 0);
+      // All counts calculated directly from beneficiary_activations
+      // so they are always accurate and never get out of sync with the DB
+      const [{ count: activated }, { count: rejected }, { data: pending }] = await Promise.all([
+        supabase
+          .from('beneficiary_activations')
+          .select('id', { count: 'exact', head: true })
+          .eq('payment_status', 'verified')
+          .eq('philanthropist_id', user.id),
+        supabase
+          .from('beneficiary_activations')
+          .select('id', { count: 'exact', head: true })
+          .eq('payment_status', 'rejected')
+          .eq('philanthropist_id', user.id),
+        supabase
+          .from('beneficiary_activations')
+          .select(`*, users:user_id (id, full_name, email, country, profile_picture)`)
+          .eq('payment_status', 'pending')
+          .order('created_at', { ascending: true }),
+      ]);
 
-      // Pending queue is shared — all philanthropists see the same queue
-      const { data: pending } = await supabase
-        .from('beneficiary_activations')
-        .select(`*, users:user_id (id, full_name, email, country, profile_picture)`)
-        .eq('payment_status', 'pending')
-        .order('created_at', { ascending: true });
-
+      setTotalActivated(activated ?? 0);
+      setTotalRejected(rejected ?? 0);
       setPendingUsers(pending || []);
     } catch (e) { console.error('loadAll error:', e); }
     finally { setLoading(false); }
@@ -205,7 +250,6 @@ export default function PhilanthropistDashboardPage() {
         return;
       }
 
-      // Deduct ACT — DB trigger auto-increments total_activated
       const { newBalance } = await deductACT(user.id, actBalance);
       setActBalance(newBalance);
 
@@ -227,14 +271,13 @@ export default function PhilanthropistDashboardPage() {
         .from('beneficiary_activations')
         .update({
           payment_status: 'rejected',
-          philanthropist_id: user.id,       // stamp who rejected
+          philanthropist_id: user.id,
           updated_at: new Date().toISOString(),
         })
         .eq('user_id', targetUserId);
 
       if (error) throw error;
 
-      setTotalRejected(prev => prev + 1);
       const name = item.users?.full_name || item.users?.email || 'User';
       showToast(`${name} has been rejected. No ACT was deducted.`, 'info');
       await loadAll();
@@ -361,7 +404,7 @@ export default function PhilanthropistDashboardPage() {
           )}
         </div>
 
-        {/* STATS — all scoped to this specific philanthropist */}
+        {/* STATS — all counted directly from beneficiary_activations per philanthropist */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 24 }}>
           {[
             {
@@ -427,10 +470,8 @@ export default function PhilanthropistDashboardPage() {
         <ActivateByEmail
           userId={user?.id || ''}
           actBalance={actBalance}
-          totalActivated={totalActivated}
-          onSuccess={(newBal, newTotal, name) => {
+          onSuccess={(newBal, name) => {
             setActBalance(newBal);
-            setTotalActivated(newTotal);
             showToast(`✅ ${name} activated! −${ACT_PER_ACTIVATION} ACT deducted. Balance: ${newBal} ACT`, 'success');
             loadAll();
           }}
@@ -525,11 +566,10 @@ export default function PhilanthropistDashboardPage() {
 }
 
 // ── Activate by Email ─────────────────────────────────────────────────────────
-function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlreadyActive, onError, onLowBalance }: {
+function ActivateByEmail({ userId, actBalance, onSuccess, onAlreadyActive, onError, onLowBalance }: {
   userId: string;
   actBalance: number;
-  totalActivated: number;
-  onSuccess: (newBal: number, newTotal: number, name: string) => void;
+  onSuccess: (newBal: number, name: string) => void;
   onAlreadyActive: (name: string) => void;
   onError: (msg: string) => void;
   onLowBalance: () => void;
@@ -570,7 +610,6 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlre
 
     setActivating(true);
     try {
-      // Pass userId so philanthropist_id is stamped on the row
       const result = await activateBeneficiary(foundUser.id, userId);
 
       if (result.alreadyActive) {
@@ -584,9 +623,8 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlre
         return;
       }
 
-      // Deduct ACT — DB trigger handles total_activated
       const { newBalance } = await deductACT(userId, actBalance);
-      onSuccess(newBalance, totalActivated + 1, name);
+      onSuccess(newBalance, name);
       setFoundUser(null);
       setEmail('');
     } catch (e: any) {
