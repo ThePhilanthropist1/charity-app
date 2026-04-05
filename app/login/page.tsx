@@ -1,13 +1,14 @@
 ﻿'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogIn, FileText } from 'lucide-react';
+import { LogIn, FileText, Eye, EyeOff } from 'lucide-react';
 import Image from 'next/image';
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -25,15 +26,17 @@ export default function LoginPage() {
       if (result.success) {
         localStorage.setItem('auth_token', result.data.token);
         localStorage.setItem('auth_user', JSON.stringify(result.data.user));
-        // ALL users always land on beneficiary dashboard first.
-        // Admin panel and Philanthropist dashboard are accessible from there.
-        router.push('/beneficiary-dashboard');
+        // Hard redirect forces a full page reload so the auth context
+        // hydrates from localStorage BEFORE the dashboard mounts.
+        // This is what prevents the redirect loop — router.push() was
+        // navigating before the auth context had read the new session.
+        window.location.href = '/beneficiary-dashboard';
       } else {
         setError(result.error || 'Invalid email or password');
+        setLoading(false);
       }
     } catch (err) {
       setError('Network error. Please try again.');
-    } finally {
       setLoading(false);
     }
   };
@@ -86,15 +89,27 @@ export default function LoginPage() {
 
               <div style={{ marginBottom: 8 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>Password</label>
-                <input
-                  suppressHydrationWarning
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    suppressHydrationWarning
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '12px 48px 12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                    style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#8FA3BF', display: 'flex', alignItems: 'center', padding: 0 }}
+                  >
+                    {showPassword
+                      ? <EyeOff style={{ width: 18, height: 18 }} />
+                      : <Eye style={{ width: 18, height: 18 }} />}
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
