@@ -66,7 +66,7 @@ export default function AdminKYCReviewPage() {
     if (!selectedKYC || !user?.id) return;
     setSubmitting(true);
     try {
-      // Update KYC status
+      // Step 1: Update KYC status to approved
       const { error } = await supabase
         .from('kyc_submissions')
         .update({
@@ -78,8 +78,7 @@ export default function AdminKYCReviewPage() {
         .eq('id', selectedKYC.id);
       if (error) throw error;
 
-      // Only update role to philanthropist if the user is NOT already an admin
-      // This prevents overwriting admin role for admin users who also apply
+      // Step 2: Update user role to philanthropist (unless they are admin)
       if (selectedKYC.user_id) {
         const { data: targetUser } = await supabase
           .from('users')
@@ -93,11 +92,67 @@ export default function AdminKYCReviewPage() {
             .update({ role: 'philanthropist', updated_at: new Date().toISOString() })
             .eq('id', selectedKYC.user_id);
         }
-        // Admin users keep their 'admin' role — philanthropist status is
-        // determined by kyc_submissions.status = 'approved' in the dashboard
+
+        // Step 3: Auto-create philanthropist record if it doesn't exist yet.
+        // This ensures every approved philanthropist has their own row in the
+        // philanthropists table with a starting ACT balance of 1000, so their
+        // dashboard works immediately after approval with no manual SQL needed.
+        const { data: existingRecord } = await supabase
+          .from('philanthropists')
+          .select('id')
+          .eq('user_id', selectedKYC.user_id)
+          .maybeSingle();
+
+        if (!existingRecord) {
+          const { error: insertError } = await supabase
+            .from('philanthropists')
+            .insert({
+              id: selectedKYC.user_id,
+              user_id: selectedKYC.user_id,
+              kyc_status: 'approved',
+              kyc_submitted_at: selectedKYC.submitted_at || selectedKYC.created_at,
+              kyc_approved_at: new Date().toISOString(),
+              kyc_reviewer_id: user.id,
+              kyc_review_notes: reviewNotes || null,
+              act_balance: 1000,
+              total_activated: 0,
+              date_of_birth: selectedKYC.date_of_birth || '1990-01-01',
+              home_address: selectedKYC.home_address || selectedKYC.address || 'Not provided',
+              wallet_address: selectedKYC.wallet_address || null,
+              region_coverage: selectedKYC.region_coverage || null,
+              telegram_username: selectedKYC.telegram_username || null,
+              assigned_beneficiaries_count: 0,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
+
+          if (insertError) {
+            // Log but don't block — KYC approval still succeeded
+            console.error('Failed to auto-create philanthropist record:', insertError.message);
+            showToast('KYC approved but philanthropist record creation failed. Please create manually.', 'error');
+            setSelectedKYC(null);
+            setReviewNotes('');
+            setReviewAction(null);
+            await loadKYCSubmissions();
+            await loadTodayStats();
+            return;
+          }
+        } else {
+          // Record exists — just update KYC status fields on it
+          await supabase
+            .from('philanthropists')
+            .update({
+              kyc_status: 'approved',
+              kyc_approved_at: new Date().toISOString(),
+              kyc_reviewer_id: user.id,
+              kyc_review_notes: reviewNotes || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', selectedKYC.user_id);
+        }
       }
 
-      showToast('KYC approved! User is now a Philanthropist.', 'success');
+      showToast('KYC approved! Philanthropist account is ready.', 'success');
       setSelectedKYC(null);
       setReviewNotes('');
       setReviewAction(null);
