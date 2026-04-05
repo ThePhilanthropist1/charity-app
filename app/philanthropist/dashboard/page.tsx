@@ -20,30 +20,44 @@ const USDT_CONTRACT = '0x55d398326f99059ff775485246999027b3197955';
 
 // ── ensure philanthropist record exists ───────────────────────────────────────
 async function ensurePhilRecord(userId: string) {
+  // Fetch existing record by user_id
   const { data: existing } = await supabase
     .from('philanthropists')
     .select('*')
     .eq('user_id', userId)
-    .single();
+    .maybeSingle();
   if (existing) return existing;
 
-  const { data: created } = await supabase
+  // Also try fetching by id (since old table uses id = user_id)
+  const { data: byId } = await supabase
     .from('philanthropists')
-    .insert({ user_id: userId, act_balance: ACT_INITIAL_BALANCE, total_activated: 0, kyc_status: 'approved' })
-    .select()
-    .single();
-  return created;
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+  if (byId) return byId;
+
+  // Record does not exist — return null, dashboard will show default values
+  // Philanthropist records must be created via the admin KYC approval process
+  return null;
 }
 
 // ── deduct ACT and increment total ───────────────────────────────────────────
 async function deductACT(userId: string, currentBalance: number, currentTotal: number) {
   const newBalance = currentBalance - ACT_PER_ACTIVATION;
   const newTotal = currentTotal + 1;
-  const { error } = await supabase
-    .from('philanthropists')
+  // Try update by user_id first, fallback to id (old table uses id = user_id)
+  const { data: rows } = await supabase
+    .from("philanthropists")
     .update({ act_balance: newBalance, total_activated: newTotal, updated_at: new Date().toISOString() })
-    .eq('user_id', userId);
-  if (error) throw error;
+    .eq("user_id", userId)
+    .select("id");
+  if (!rows || rows.length === 0) {
+    const { error } = await supabase
+      .from("philanthropists")
+      .update({ act_balance: newBalance, total_activated: newTotal, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+    if (error) throw error;
+  }
   return { newBalance, newTotal };
 }
 
@@ -592,11 +606,20 @@ function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
 
       // Credit ACT
       const newBalance = currentBalance + REFILL_ACT_AMOUNT;
-      const { error: dbErr } = await supabase
-        .from('philanthropists')
+      const newBalance = currentBalance + REFILL_ACT_AMOUNT;
+      // Try user_id first, fallback to id
+      const { data: refillRows } = await supabase
+        .from("philanthropists")
         .update({ act_balance: newBalance, last_refill_hash: cleanHash, last_refill_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('user_id', userId);
-      if (dbErr) throw dbErr;
+        .eq("user_id", userId)
+        .select("id");
+      if (!refillRows || refillRows.length === 0) {
+        const { error: dbErr2 } = await supabase
+          .from("philanthropists")
+          .update({ act_balance: newBalance, last_refill_hash: cleanHash, last_refill_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", userId);
+        if (dbErr2) throw dbErr2;
+      }
 
       onSuccess(newBalance);
     } catch (e: any) {
