@@ -8,7 +8,7 @@ import Image from 'next/image';
 import {
   Users, CheckCircle, Clock, LogOut, Shield,
   AlertCircle, Home, UserCheck, Mail, MapPin,
-  Coins, Copy, RefreshCw, X, Zap, Award, Search
+  Coins, Copy, RefreshCw, X, Zap, Award, Search, XCircle
 } from 'lucide-react';
 
 const WALLET_ADDRESS = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
@@ -18,7 +18,7 @@ const REFILL_COST_USD = 70;
 const REFILL_ACT_AMOUNT = 1000;
 const USDT_CONTRACT = '0x55d398326f99059ff775485246999027b3197955';
 
-// ── Get philanthropist record (by user_id OR id) ──────────────────────────────
+// ── Get philanthropist record (by user_id, returns full row including pk id) ──
 async function getPhilRecord(userId: string) {
   const { data: byUserId } = await supabase
     .from('philanthropists')
@@ -27,6 +27,7 @@ async function getPhilRecord(userId: string) {
     .maybeSingle();
   if (byUserId) return byUserId;
 
+  // Fallback: try matching id column
   const { data: byId } = await supabase
     .from('philanthropists')
     .select('*')
@@ -35,30 +36,31 @@ async function getPhilRecord(userId: string) {
   return byId || null;
 }
 
-// ── Deduct ACT (update by user_id OR id) ─────────────────────────────────────
+// ── Deduct ACT — fetch record pk first, then update by pk ────────────────────
 async function deductACT(userId: string, currentBalance: number, currentTotal: number) {
   const newBalance = currentBalance - ACT_PER_ACTIVATION;
   const newTotal = currentTotal + 1;
 
-  const { data: rows } = await supabase
-    .from('philanthropists')
-    .update({ act_balance: newBalance, total_activated: newTotal, updated_at: new Date().toISOString() })
-    .eq('user_id', userId)
-    .select('id');
+  // Step 1: get the actual primary key of the row
+  const record = await getPhilRecord(userId);
+  if (!record) throw new Error('Philanthropist record not found for user: ' + userId);
 
-  if (!rows || rows.length === 0) {
-    const { error } = await supabase
-      .from('philanthropists')
-      .update({ act_balance: newBalance, total_activated: newTotal, updated_at: new Date().toISOString() })
-      .eq('id', userId);
-    if (error) throw error;
-  }
+  // Step 2: update using the row's real pk (record.id)
+  const { error } = await supabase
+    .from('philanthropists')
+    .update({
+      act_balance: newBalance,
+      total_activated: newTotal,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', record.id);
+
+  if (error) throw error;
   return { newBalance, newTotal };
 }
 
-// ── Activate a beneficiary (upsert — works whether record exists or not) ──────
+// ── Activate a beneficiary ────────────────────────────────────────────────────
 async function activateBeneficiary(targetUserId: string): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
-  // First check if already activated
   const { data: existing } = await supabase
     .from('beneficiary_activations')
     .select('id, payment_status')
@@ -70,7 +72,6 @@ async function activateBeneficiary(targetUserId: string): Promise<{ success: boo
   }
 
   if (existing) {
-    // Record exists but not verified — update it
     const { error } = await supabase
       .from('beneficiary_activations')
       .update({
@@ -82,7 +83,6 @@ async function activateBeneficiary(targetUserId: string): Promise<{ success: boo
       .eq('user_id', targetUserId);
     if (error) return { success: false, alreadyActive: false, error: error.message };
   } else {
-    // No record at all — insert new one
     const { error } = await supabase
       .from('beneficiary_activations')
       .insert({
@@ -106,9 +106,11 @@ export default function PhilanthropistDashboardPage() {
 
   const [actBalance, setActBalance] = useState(ACT_INITIAL_BALANCE);
   const [totalActivated, setTotalActivated] = useState(0);
+  const [totalRejected, setTotalRejected] = useState(0);
   const [pendingUsers, setPendingUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showRefill, setShowRefill] = useState(false);
 
@@ -132,6 +134,16 @@ export default function PhilanthropistDashboardPage() {
       const record = await getPhilRecord(user.id);
       setActBalance(record?.act_balance ?? ACT_INITIAL_BALANCE);
       setTotalActivated(record?.total_activated ?? 0);
+
+      // Count rejected beneficiaries this philanthropist has handled
+      // We track rejections by payment_status = 'rejected' in beneficiary_activations
+      // If your schema stores philanthropist_id on the activation row, filter by that.
+      // Currently we use total_activated from the record and fetch rejected count separately.
+      const { count: rejectedCount } = await supabase
+        .from('beneficiary_activations')
+        .select('id', { count: 'exact', head: true })
+        .eq('payment_status', 'rejected');
+      setTotalRejected(rejectedCount ?? 0);
 
       const { data: pending } = await supabase
         .from('beneficiary_activations')
@@ -169,7 +181,7 @@ export default function PhilanthropistDashboardPage() {
         return;
       }
 
-      // Only deduct ACT on successful NEW activation
+      // Deduct 10 ACT only on successful NEW activation
       const { newBalance, newTotal } = await deductACT(user.id, actBalance, totalActivated);
       setActBalance(newBalance);
       setTotalActivated(newTotal);
@@ -180,6 +192,30 @@ export default function PhilanthropistDashboardPage() {
     } catch (e: any) {
       showToast(`Activation failed: ${e.message}`, 'error');
     } finally { setActivating(null); }
+  };
+
+  const handleRejectFromQueue = async (item: any) => {
+    const targetUserId = item.users?.id || item.user_id;
+    if (!targetUserId || !user?.id) return;
+
+    setRejecting(targetUserId);
+    try {
+      const { error } = await supabase
+        .from('beneficiary_activations')
+        .update({
+          payment_status: 'rejected',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', targetUserId);
+
+      if (error) throw error;
+
+      const name = item.users?.full_name || item.users?.email || 'User';
+      showToast(`${name} has been rejected. No ACT was deducted.`, 'info');
+      await loadAll();
+    } catch (e: any) {
+      showToast(`Rejection failed: ${e.message}`, 'error');
+    } finally { setRejecting(null); }
   };
 
   if (authLoading || loading) {
@@ -207,7 +243,7 @@ export default function PhilanthropistDashboardPage() {
       {toast && (
         <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 1000, padding: '14px 20px', borderRadius: 14, backgroundColor: toastBg, border: `2px solid ${toastBorder}`, color: toastColor, fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'flex-start', gap: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.5)', maxWidth: 420 }}>
           <div style={{ flexShrink: 0, marginTop: 1 }}>
-            {toast.type === 'success' ? <CheckCircle style={{ width: 18, height: 18 }} /> : toast.type === 'info' ? <AlertCircle style={{ width: 18, height: 18 }} /> : <AlertCircle style={{ width: 18, height: 18 }} />}
+            {toast.type === 'success' ? <CheckCircle style={{ width: 18, height: 18 }} /> : <AlertCircle style={{ width: 18, height: 18 }} />}
           </div>
           <p style={{ margin: 0, lineHeight: 1.5, flex: 1 }}>{toast.msg}</p>
           <button onClick={() => setToast(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, flexShrink: 0, opacity: 0.6 }}>
@@ -300,12 +336,41 @@ export default function PhilanthropistDashboardPage() {
           )}
         </div>
 
-        {/* STATS */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
+        {/* STATS — now 4 cards including Rejected */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 24 }}>
           {[
-            { label: 'Total Activated', value: totalActivated, color: '#00B894', bg: 'rgba(0,184,148,0.08)', border: 'rgba(0,184,148,0.2)', icon: <UserCheck style={{ width: 18, height: 18, color: '#00B894' }} /> },
-            { label: 'Pending Queue', value: pendingUsers.length, color: '#ffc107', bg: 'rgba(255,193,7,0.08)', border: 'rgba(255,193,7,0.2)', icon: <Clock style={{ width: 18, height: 18, color: '#ffc107' }} /> },
-            { label: 'ACT per Activation', value: ACT_PER_ACTIVATION, color: '#67e8f9', bg: 'rgba(103,232,249,0.08)', border: 'rgba(103,232,249,0.2)', icon: <Zap style={{ width: 18, height: 18, color: '#67e8f9' }} /> },
+            {
+              label: 'Total Activated',
+              value: totalActivated,
+              color: '#00B894',
+              bg: 'rgba(0,184,148,0.08)',
+              border: 'rgba(0,184,148,0.2)',
+              icon: <UserCheck style={{ width: 18, height: 18, color: '#00B894' }} />,
+            },
+            {
+              label: 'Total Rejected',
+              value: totalRejected,
+              color: '#ff6b6b',
+              bg: 'rgba(255,107,107,0.08)',
+              border: 'rgba(255,107,107,0.2)',
+              icon: <XCircle style={{ width: 18, height: 18, color: '#ff6b6b' }} />,
+            },
+            {
+              label: 'Pending Queue',
+              value: pendingUsers.length,
+              color: '#ffc107',
+              bg: 'rgba(255,193,7,0.08)',
+              border: 'rgba(255,193,7,0.2)',
+              icon: <Clock style={{ width: 18, height: 18, color: '#ffc107' }} />,
+            },
+            {
+              label: 'ACT per Activation',
+              value: ACT_PER_ACTIVATION,
+              color: '#67e8f9',
+              bg: 'rgba(103,232,249,0.08)',
+              border: 'rgba(103,232,249,0.2)',
+              icon: <Zap style={{ width: 18, height: 18, color: '#67e8f9' }} />,
+            },
           ].map((s) => (
             <div key={s.label} style={{ padding: '18px 16px', borderRadius: 16, border: `1px solid ${s.border}`, backgroundColor: s.bg, display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.icon}</div>
@@ -375,6 +440,8 @@ export default function PhilanthropistDashboardPage() {
                 const country = u?.country || null;
                 const uid = u?.id || item.user_id;
                 const isActivating = activating === uid;
+                const isRejecting = rejecting === uid;
+                const isBusy = isActivating || isRejecting;
                 const canActivate = actBalance >= ACT_PER_ACTIVATION;
                 return (
                   <div key={item.id} style={{ padding: '16px 20px', borderBottom: i < pendingUsers.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -392,18 +459,34 @@ export default function PhilanthropistDashboardPage() {
                         {country && <span style={{ fontSize: 12, color: '#8FA3BF', display: 'flex', alignItems: 'center', gap: 4 }}><MapPin style={{ width: 11, height: 11 }} />{country}</span>}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                    {/* ACTION BUTTONS */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      {/* REJECT */}
                       <button
-                        onClick={() => handleActivateFromQueue(item)}
-                        disabled={isActivating || !canActivate}
-                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: !canActivate ? 'rgba(255,107,107,0.15)' : isActivating ? 'rgba(0,184,148,0.3)' : 'linear-gradient(to right, #00B894, #00CEC9)', color: !canActivate ? '#ff6b6b' : 'white', fontWeight: 700, fontSize: 13, border: !canActivate ? '1px solid rgba(255,107,107,0.3)' : 'none', cursor: (isActivating || !canActivate) ? 'not-allowed' : 'pointer' }}
+                        onClick={() => handleRejectFromQueue(item)}
+                        disabled={isBusy}
+                        title="Reject this beneficiary"
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '9px 14px', borderRadius: 10, background: 'rgba(255,107,107,0.1)', color: '#ff6b6b', fontWeight: 700, fontSize: 13, border: '1px solid rgba(255,107,107,0.25)', cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.5 : 1 }}
                       >
-                        {isActivating
-                          ? <div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                          : <CheckCircle style={{ width: 13, height: 13 }} />}
-                        {isActivating ? 'Activating...' : canActivate ? 'Activate' : 'No ACT'}
+                        {isRejecting
+                          ? <div style={{ width: 13, height: 13, border: '2px solid rgba(255,107,107,0.3)', borderTop: '2px solid #ff6b6b', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                          : <XCircle style={{ width: 13, height: 13 }} />}
+                        {isRejecting ? '...' : 'Reject'}
                       </button>
-                      {canActivate && <span style={{ fontSize: 10, color: '#8FA3BF' }}>−{ACT_PER_ACTIVATION} ACT</span>}
+                      {/* ACTIVATE */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                        <button
+                          onClick={() => handleActivateFromQueue(item)}
+                          disabled={isBusy || !canActivate}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: !canActivate ? 'rgba(255,107,107,0.15)' : isActivating ? 'rgba(0,184,148,0.3)' : 'linear-gradient(to right, #00B894, #00CEC9)', color: !canActivate ? '#ff6b6b' : 'white', fontWeight: 700, fontSize: 13, border: !canActivate ? '1px solid rgba(255,107,107,0.3)' : 'none', cursor: (isBusy || !canActivate) ? 'not-allowed' : 'pointer' }}
+                        >
+                          {isActivating
+                            ? <div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                            : <CheckCircle style={{ width: 13, height: 13 }} />}
+                          {isActivating ? 'Activating...' : canActivate ? 'Activate' : 'No ACT'}
+                        </button>
+                        {canActivate && <span style={{ fontSize: 10, color: '#8FA3BF' }}>−{ACT_PER_ACTIVATION} ACT</span>}
+                      </div>
                     </div>
                   </div>
                 );
@@ -449,7 +532,6 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlre
 
     const name = foundUser.full_name || foundUser.email;
 
-    // Already active — show info, no charge
     if (foundUser.activation?.payment_status === 'verified') {
       onAlreadyActive(name);
       return;
@@ -476,7 +558,7 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlre
         return;
       }
 
-      // Deduct ACT only on success
+      // Deduct 10 ACT only on success
       const { newBalance, newTotal } = await deductACT(userId, actBalance, totalActivated);
       onSuccess(newBalance, newTotal, name);
       setFoundUser(null);
@@ -616,19 +698,22 @@ function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
       if (!verified) { setError(`No $${REFILL_COST_USD}+ USDT transfer to our wallet found in this transaction.`); setLoading(false); return; }
 
       const newBalance = currentBalance + REFILL_ACT_AMOUNT;
-      // Try user_id first, fallback to id
-      const { data: refillRows } = await supabase
+
+      // Fetch record pk first, then update by pk — same fix as deductACT
+      const record = await getPhilRecord(userId);
+      if (!record) { setError('Philanthropist record not found. Contact support.'); setLoading(false); return; }
+
+      const { error: dbErr } = await supabase
         .from('philanthropists')
-        .update({ act_balance: newBalance, last_refill_hash: cleanHash, last_refill_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('user_id', userId)
-        .select('id');
-      if (!refillRows || refillRows.length === 0) {
-        const { error: dbErr } = await supabase
-          .from('philanthropists')
-          .update({ act_balance: newBalance, last_refill_hash: cleanHash, last_refill_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq('id', userId);
-        if (dbErr) throw dbErr;
-      }
+        .update({
+          act_balance: newBalance,
+          last_refill_hash: cleanHash,
+          last_refill_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', record.id);
+
+      if (dbErr) throw dbErr;
       onSuccess(newBalance);
     } catch (e: any) {
       setError('Verification failed: ' + (e.message || 'Please try again.'));
