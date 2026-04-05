@@ -18,18 +18,24 @@ export const metadata: Metadata = {
   title: "Charity Token - Empowering 1 Million Lives",
   description: "Receive 500 Charity tokens monthly for 10 years. Sign up, activate your account, and own a piece of the future.",
   metadataBase: new URL("https://shimmering-cassata-c25449.netlify.app"),
+  icons: {
+    icon: [{ url: "/Charity token logo.jpg", type: "image/jpeg" }],
+    apple: [{ url: "/Charity token logo.jpg", type: "image/jpeg" }],
+    shortcut: "/Charity token logo.jpg",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
     url: "https://shimmering-cassata-c25449.netlify.app",
     title: "Charity Token - Empowering 1 Million Lives",
     description: "Receive 500 Charity tokens monthly for 10 years",
-    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+    images: [{ url: "/Charity token logo.jpg", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Charity Token - Empowering 1 Million Lives",
     description: "Receive 500 Charity tokens monthly for 10 years",
+    images: ["/Charity token logo.jpg"],
   },
 };
 
@@ -43,6 +49,8 @@ export default function RootLayout({
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="x-ua-compatible" content="ie=edge" />
+        <link rel="icon" href="/Charity token logo.jpg" type="image/jpeg" />
+        <link rel="apple-touch-icon" href="/Charity token logo.jpg" />
         <link rel="preconnect" href="https://fonts.googleapis.com" crossOrigin="anonymous" />
         <style>{`
           *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -62,7 +70,7 @@ export default function RootLayout({
         `}</style>
       </head>
       <body className="w-full min-h-screen bg-[#0A1628]">
-        {/* Pi Network SDK — loads before page content so Pi object is available */}
+        {/* Pi Network SDK */}
         <Script
           src="https://sdk.minepi.com/pi-sdk.js"
           strategy="beforeInteractive"

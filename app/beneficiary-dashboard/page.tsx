@@ -56,9 +56,13 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
         <div style={{ padding: '16px 20px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #00CEC9, #00B894)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: 12, fontWeight: 900, color: 'white' }}>CT</span>
-              </div>
+              {/* Charity Token logo instead of CT text */}
+              <img
+                src="/Charity token logo.jpg"
+                alt="Charity Token"
+                style={{ width: 32, height: 32, borderRadius: 8, objectFit: 'cover' }}
+                crossOrigin="anonymous"
+              />
               <div>
                 <p style={{ fontSize: 11, fontWeight: 800, color: '#00CEC9', margin: 0, letterSpacing: 1 }}>CHARITY TOKEN</p>
                 <p style={{ fontSize: 8, color: 'rgba(207,250,254,0.6)', margin: 0 }}>MEMBERSHIP CARD</p>
@@ -128,9 +132,9 @@ export default function BeneficiaryDashboardPage() {
   const [saveMsg, setSaveMsg] = useState('');
   const [saveError, setSaveError] = useState('');
 
-  // ── Role flags — derived from DB, not just localStorage ──
   const [isAdmin, setIsAdmin] = useState(false);
   const [isPhilanthropist, setIsPhilanthropist] = useState(false);
+  const [showTelegramPopup, setShowTelegramPopup] = useState(false);
 
   useEffect(() => {
     if (!authLoading) {
@@ -147,7 +151,6 @@ export default function BeneficiaryDashboardPage() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      // Always fetch fresh user record from DB — never trust localStorage role alone
       const { data: freshUser } = await supabase
         .from('users')
         .select('role, email')
@@ -157,11 +160,8 @@ export default function BeneficiaryDashboardPage() {
       const role = freshUser?.role || user?.role || '';
       const email = (freshUser?.email || user?.email || '').toLowerCase();
 
-      // Admin: role is 'admin' OR hardcoded email (failsafe)
       setIsAdmin(role === 'admin' || email === 'dinfadashe@gmail.com');
 
-      // Philanthropist: role is 'philanthropist' OR has approved KYC
-      // Check both so admin-philanthropists and future multi-role users work
       let philFlag = role === 'philanthropist';
       if (!philFlag) {
         const { data: kycData } = await supabase
@@ -174,15 +174,21 @@ export default function BeneficiaryDashboardPage() {
       }
       setIsPhilanthropist(philFlag);
 
-      // Activation status
       const { data: bal } = await supabase
         .from('beneficiary_activations')
         .select('*')
         .eq('user_id', user.id)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       setBalance(bal);
 
-      // Transactions
+      // Show Telegram popup once per user per browser session
+      const popupKey = 'telegram_popup_shown_' + user.id;
+      if (!localStorage.getItem(popupKey) && bal?.payment_status === 'verified') {
+        setShowTelegramPopup(true);
+      }
+
       const { data: txns } = await supabase
         .from('token_transactions')
         .select('*')
@@ -235,7 +241,6 @@ export default function BeneficiaryDashboardPage() {
     finally { setSaving(false); }
   };
 
-  // ── LOADING ──
   if (authLoading || loading) {
     return (
       <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -250,7 +255,6 @@ export default function BeneficiaryDashboardPage() {
 
   const isActivated = balance?.payment_status === 'verified';
 
-  // Redirect unactivated non-admin users
   if (!isActivated && !isAdmin) {
     router.push('/beneficiary/activation');
     return (
@@ -264,9 +268,6 @@ export default function BeneficiaryDashboardPage() {
     );
   }
 
-  // ── PANEL CARDS ──
-
-  // "Become a Philanthropist" — only for activated users who are NOT yet philanthropists
   const BecomePhilanthropistCard = () => (
     <div onClick={() => router.push('/philanthropist/kyc')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.3)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -282,7 +283,6 @@ export default function BeneficiaryDashboardPage() {
     </div>
   );
 
-  // Philanthropist Dashboard card — for approved philanthropists
   const PhilanthropistDashboardCard = () => (
     <div onClick={() => router.push('/philanthropist/dashboard')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,184,148,0.4)', background: 'linear-gradient(135deg, rgba(0,184,148,0.08) 0%, rgba(0,206,201,0.08) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -298,7 +298,6 @@ export default function BeneficiaryDashboardPage() {
     </div>
   );
 
-  // Admin Panel card
   const AdminPanelCard = () => (
     <div onClick={() => router.push('/admin')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(108,63,200,0.4)', background: 'linear-gradient(135deg, rgba(108,63,200,0.08) 0%, rgba(155,89,182,0.08) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -314,8 +313,42 @@ export default function BeneficiaryDashboardPage() {
     </div>
   );
 
+  const dismissTelegramPopup = () => {
+    setShowTelegramPopup(false);
+    localStorage.setItem('telegram_popup_shown_' + user?.id, '1');
+  };
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif', position: 'relative', overflowX: 'hidden' }}>
+
+      {/* TELEGRAM POPUP */}
+      {showTelegramPopup && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 200, backdropFilter: 'blur(6px)' }}>
+          <div style={{ width: '100%', maxWidth: 420, backgroundColor: '#0F1F35', border: '1px solid rgba(0,136,204,0.3)', borderRadius: 22, padding: 32, boxShadow: '0 40px 80px rgba(0,0,0,0.6)', textAlign: 'center', position: 'relative' }}>
+            <button onClick={dismissTelegramPopup} style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.06)', border: 'none', color: '#8FA3BF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>✕</button>
+            <div style={{ width: 64, height: 64, borderRadius: '50%', backgroundColor: 'rgba(0,136,204,0.15)', border: '2px solid rgba(0,136,204,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="#0088cc"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/></svg>
+            </div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: 'white', marginBottom: 8 }}>Join Our Telegram Community!</h2>
+            <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.7, marginBottom: 24 }}>
+              Stay updated with the latest Charity Token news, distribution announcements, and connect with fellow beneficiaries in our official Telegram group.
+            </p>
+            <a
+              href="https://t.me/CharityTokenProject1"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={dismissTelegramPopup}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12, boxSizing: 'border-box', boxShadow: '0 8px 24px rgba(0,136,204,0.3)' }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/></svg>
+              Join Telegram Group
+            </a>
+            <button onClick={dismissTelegramPopup} style={{ background: 'none', border: 'none', color: '#8FA3BF', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0,206,201,0.06) 0%, transparent 70%)', borderRadius: '50%' }} />
@@ -346,7 +379,6 @@ export default function BeneficiaryDashboardPage() {
 
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '24px 20px 60px', position: 'relative', zIndex: 10 }}>
 
-        {/* WELCOME */}
         <div style={{ marginBottom: 20 }}>
           <h1 style={{ fontSize: 'clamp(20px, 4vw, 28px)', fontWeight: 800, marginBottom: 4 }}>
             Welcome, {fullName?.split(' ')[0] || 'Beneficiary'} 👋
@@ -354,21 +386,10 @@ export default function BeneficiaryDashboardPage() {
           <p style={{ fontSize: 13, color: '#8FA3BF' }}>
             {isActivated ? 'Your account is active. Monthly distributions begin 2027.' : 'Complete activation to start receiving tokens.'}
           </p>
-          {/* Role badges */}
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(0,184,148,0.15)', color: '#00B894', border: '1px solid rgba(0,184,148,0.3)', fontWeight: 600 }}>
-              ✓ Beneficiary
-            </span>
-            {isPhilanthropist && (
-              <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(0,206,201,0.15)', color: '#00CEC9', border: '1px solid rgba(0,206,201,0.3)', fontWeight: 600 }}>
-                ✓ Philanthropist
-              </span>
-            )}
-            {isAdmin && (
-              <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(108,63,200,0.15)', color: '#9B59B6', border: '1px solid rgba(108,63,200,0.3)', fontWeight: 600 }}>
-                ✓ Admin
-              </span>
-            )}
+            <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(0,184,148,0.15)', color: '#00B894', border: '1px solid rgba(0,184,148,0.3)', fontWeight: 600 }}>✓ Beneficiary</span>
+            {isPhilanthropist && <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(0,206,201,0.15)', color: '#00CEC9', border: '1px solid rgba(0,206,201,0.3)', fontWeight: 600 }}>✓ Philanthropist</span>}
+            {isAdmin && <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(108,63,200,0.15)', color: '#9B59B6', border: '1px solid rgba(108,63,200,0.3)', fontWeight: 600 }}>✓ Admin</span>}
           </div>
         </div>
 
@@ -394,10 +415,9 @@ export default function BeneficiaryDashboardPage() {
           ))}
         </div>
 
-        {/* ── OVERVIEW TAB ── */}
+        {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               {[
                 { label: 'Current Balance', value: balance?.current_balance?.toLocaleString() || '0', sub: 'Charity Tokens' },
@@ -405,30 +425,22 @@ export default function BeneficiaryDashboardPage() {
                 { label: 'Monthly Reward', value: '500', sub: 'Starting 2027' },
               ].map((s) => (
                 <div key={s.label} style={{ padding: '14px 10px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
-                  <p style={{ fontSize: 10, color: '#8FA3BF', marginBottom: 5, margin: '0 0 5px' }}>{s.label}</p>
+                  <p style={{ fontSize: 10, color: '#8FA3BF', margin: '0 0 5px' }}>{s.label}</p>
                   <p style={{ fontSize: 20, fontWeight: 800, background: 'linear-gradient(to right, #00CEC9, #00B894)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', margin: 0 }}>{s.value}</p>
-                  <p style={{ fontSize: 10, color: '#4A5568', marginTop: 2, margin: '2px 0 0' }}>{s.sub}</p>
+                  <p style={{ fontSize: 10, color: '#4A5568', margin: '2px 0 0' }}>{s.sub}</p>
                 </div>
               ))}
             </div>
 
-            {/* Membership card */}
             <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
 
-            {/* ── PANELS — shown based on role, always in this order ── */}
-
-            {/* Philanthropist Dashboard — for approved philanthropists */}
             {isPhilanthropist && <PhilanthropistDashboardCard />}
-
-            {/* Admin Panel — for admins */}
             {isAdmin && <AdminPanelCard />}
-
-            {/* Become a Philanthropist — only for activated non-philanthropists */}
             {isActivated && !isPhilanthropist && <BecomePhilanthropistCard />}
           </div>
         )}
 
-        {/* ── PROFILE TAB ── */}
+        {/* PROFILE TAB */}
         {activeTab === 'profile' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
@@ -501,14 +513,13 @@ export default function BeneficiaryDashboardPage() {
               <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
             </div>
 
-            {/* Panels in profile tab too */}
             {isPhilanthropist && <PhilanthropistDashboardCard />}
             {isAdmin && <AdminPanelCard />}
             {isActivated && !isPhilanthropist && <BecomePhilanthropistCard />}
           </div>
         )}
 
-        {/* ── HISTORY TAB ── */}
+        {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, color: 'white', marginBottom: 16 }}>Transaction History</h2>

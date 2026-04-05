@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Input } from '@/components/ui/input';
-import { AlertCircle, UserPlus } from 'lucide-react';
+import { AlertCircle, UserPlus, Eye, EyeOff } from 'lucide-react';
 
 export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?: string }) {
   const router = useRouter();
@@ -12,6 +11,8 @@ export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +69,7 @@ export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?
       {error && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 10, marginBottom: 16 }}>
           <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0, marginTop: 1 }} />
-          <p style={{ fontSize: 13, color: '#ffb3b3' }}>{error}</p>
+          <p style={{ fontSize: 13, color: '#ffb3b3', margin: 0 }}>{error}</p>
         </div>
       )}
 
@@ -94,14 +95,23 @@ export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>
             Password
           </label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-            style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              style={{ width: '100%', padding: '12px 44px 12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#8FA3BF', padding: 0, display: 'flex', alignItems: 'center' }}
+            >
+              {showPassword ? <EyeOff style={{ width: 16, height: 16 }} /> : <Eye style={{ width: 16, height: 16 }} />}
+            </button>
+          </div>
           <p style={{ fontSize: 11, color: '#8FA3BF', marginTop: 4 }}>Min 8 characters</p>
         </div>
 
@@ -110,14 +120,23 @@ export function RegistrationForm({ defaultRole = 'beneficiary' }: { defaultRole?
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>
             Confirm Password
           </label>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-            style={{ width: '100%', padding: '12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showConfirmPassword ? 'text' : 'password'}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              style={{ width: '100%', padding: '12px 44px 12px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#8FA3BF', padding: 0, display: 'flex', alignItems: 'center' }}
+            >
+              {showConfirmPassword ? <EyeOff style={{ width: 16, height: 16 }} /> : <Eye style={{ width: 16, height: 16 }} />}
+            </button>
+          </div>
         </div>
 
         {/* Submit */}
