@@ -18,47 +18,85 @@ const REFILL_COST_USD = 70;
 const REFILL_ACT_AMOUNT = 1000;
 const USDT_CONTRACT = '0x55d398326f99059ff775485246999027b3197955';
 
-// ── ensure philanthropist record exists ───────────────────────────────────────
-async function ensurePhilRecord(userId: string) {
-  // Fetch existing record by user_id
-  const { data: existing } = await supabase
+// ── Get philanthropist record (by user_id OR id) ──────────────────────────────
+async function getPhilRecord(userId: string) {
+  const { data: byUserId } = await supabase
     .from('philanthropists')
     .select('*')
     .eq('user_id', userId)
     .maybeSingle();
-  if (existing) return existing;
+  if (byUserId) return byUserId;
 
-  // Also try fetching by id (since old table uses id = user_id)
   const { data: byId } = await supabase
     .from('philanthropists')
     .select('*')
     .eq('id', userId)
     .maybeSingle();
-  if (byId) return byId;
-
-  // Record does not exist — return null, dashboard will show default values
-  // Philanthropist records must be created via the admin KYC approval process
-  return null;
+  return byId || null;
 }
 
-// ── deduct ACT and increment total ───────────────────────────────────────────
+// ── Deduct ACT (update by user_id OR id) ─────────────────────────────────────
 async function deductACT(userId: string, currentBalance: number, currentTotal: number) {
   const newBalance = currentBalance - ACT_PER_ACTIVATION;
   const newTotal = currentTotal + 1;
-  // Try update by user_id first, fallback to id (old table uses id = user_id)
+
   const { data: rows } = await supabase
-    .from("philanthropists")
+    .from('philanthropists')
     .update({ act_balance: newBalance, total_activated: newTotal, updated_at: new Date().toISOString() })
-    .eq("user_id", userId)
-    .select("id");
+    .eq('user_id', userId)
+    .select('id');
+
   if (!rows || rows.length === 0) {
     const { error } = await supabase
-      .from("philanthropists")
+      .from('philanthropists')
       .update({ act_balance: newBalance, total_activated: newTotal, updated_at: new Date().toISOString() })
-      .eq("id", userId);
+      .eq('id', userId);
     if (error) throw error;
   }
   return { newBalance, newTotal };
+}
+
+// ── Activate a beneficiary (upsert — works whether record exists or not) ──────
+async function activateBeneficiary(targetUserId: string): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
+  // First check if already activated
+  const { data: existing } = await supabase
+    .from('beneficiary_activations')
+    .select('id, payment_status')
+    .eq('user_id', targetUserId)
+    .maybeSingle();
+
+  if (existing?.payment_status === 'verified') {
+    return { success: false, alreadyActive: true };
+  }
+
+  if (existing) {
+    // Record exists but not verified — update it
+    const { error } = await supabase
+      .from('beneficiary_activations')
+      .update({
+        payment_status: 'verified',
+        activation_method: 'philanthropist',
+        activated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', targetUserId);
+    if (error) return { success: false, alreadyActive: false, error: error.message };
+  } else {
+    // No record at all — insert new one
+    const { error } = await supabase
+      .from('beneficiary_activations')
+      .insert({
+        user_id: targetUserId,
+        payment_status: 'verified',
+        activation_method: 'philanthropist',
+        activated_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    if (error) return { success: false, alreadyActive: false, error: error.message };
+  }
+
+  return { success: true, alreadyActive: false };
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -66,16 +104,15 @@ export default function PhilanthropistDashboardPage() {
   const router = useRouter();
   const { user, loading: authLoading, signOut } = useAuth();
 
-  const [philRecord, setPhilRecord] = useState<any>(null);
   const [actBalance, setActBalance] = useState(ACT_INITIAL_BALANCE);
   const [totalActivated, setTotalActivated] = useState(0);
   const [pendingUsers, setPendingUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showRefill, setShowRefill] = useState(false);
 
-  const showToast = (msg: string, type: 'success' | 'error') => {
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 5000);
   };
@@ -92,13 +129,10 @@ export default function PhilanthropistDashboardPage() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      // Ensure record exists — creates with 1000 ACT if new
-      const record = await ensurePhilRecord(user.id);
-      setPhilRecord(record);
+      const record = await getPhilRecord(user.id);
       setActBalance(record?.act_balance ?? ACT_INITIAL_BALANCE);
       setTotalActivated(record?.total_activated ?? 0);
 
-      // Pending activations (users who haven't been activated yet)
       const { data: pending } = await supabase
         .from('beneficiary_activations')
         .select(`*, users:user_id (id, full_name, email, country, profile_picture)`)
@@ -115,35 +149,36 @@ export default function PhilanthropistDashboardPage() {
     if (!targetUserId || !user?.id) return;
 
     if (actBalance < ACT_PER_ACTIVATION) {
-      showToast(`❌ Insufficient ACT balance. You need ${ACT_PER_ACTIVATION} ACT to activate. Please refill.`, 'error');
+      showToast(`Insufficient ACT balance. You need ${ACT_PER_ACTIVATION} ACT to activate. Please refill.`, 'error');
       setShowRefill(true);
       return;
     }
 
     setActivating(targetUserId);
     try {
-      // 1. Activate beneficiary
-      const { error: actError } = await supabase
-        .from('beneficiary_activations')
-        .update({
-          payment_status: 'verified',
-          activation_method: 'philanthropist',
-          activated_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', targetUserId);
-      if (actError) throw actError;
+      const result = await activateBeneficiary(targetUserId);
 
-      // 2. Deduct ACT
+      if (result.alreadyActive) {
+        showToast(`ℹ️ This account is already activated. No ACT was deducted.`, 'info');
+        await loadAll();
+        return;
+      }
+
+      if (!result.success) {
+        showToast(`Activation failed: ${result.error}`, 'error');
+        return;
+      }
+
+      // Only deduct ACT on successful NEW activation
       const { newBalance, newTotal } = await deductACT(user.id, actBalance, totalActivated);
       setActBalance(newBalance);
       setTotalActivated(newTotal);
 
       const name = item.users?.full_name || item.users?.email || 'User';
-      showToast(`✅ ${name} activated successfully! −${ACT_PER_ACTIVATION} ACT deducted. Balance: ${newBalance} ACT`, 'success');
+      showToast(`✅ ${name} activated! −${ACT_PER_ACTIVATION} ACT deducted. Balance: ${newBalance} ACT`, 'success');
       await loadAll();
     } catch (e: any) {
-      showToast(`❌ Activation failed: ${e.message}`, 'error');
+      showToast(`Activation failed: ${e.message}`, 'error');
     } finally { setActivating(null); }
   };
 
@@ -161,17 +196,20 @@ export default function PhilanthropistDashboardPage() {
 
   const actPct = Math.min(100, (actBalance / ACT_INITIAL_BALANCE) * 100);
   const actColor = actBalance >= 200 ? '#00B894' : actBalance >= 100 ? '#ffc107' : '#ff6b6b';
+  const toastBg = toast?.type === 'success' ? 'rgba(0,184,148,0.15)' : toast?.type === 'info' ? 'rgba(103,232,249,0.15)' : 'rgba(255,107,107,0.15)';
+  const toastBorder = toast?.type === 'success' ? 'rgba(0,184,148,0.5)' : toast?.type === 'info' ? 'rgba(103,232,249,0.5)' : 'rgba(255,107,107,0.5)';
+  const toastColor = toast?.type === 'success' ? '#00B894' : toast?.type === 'info' ? '#67e8f9' : '#ff6b6b';
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif' }}>
 
       {/* TOAST */}
       {toast && (
-        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, padding: '14px 20px', borderRadius: 14, backgroundColor: toast.type === 'success' ? 'rgba(0,184,148,0.15)' : 'rgba(255,107,107,0.15)', border: `2px solid ${toast.type === 'success' ? 'rgba(0,184,148,0.5)' : 'rgba(255,107,107,0.5)'}`, color: toast.type === 'success' ? '#00B894' : '#ff6b6b', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'flex-start', gap: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.5)', maxWidth: 400, zIndex: 1000 }}>
+        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 1000, padding: '14px 20px', borderRadius: 14, backgroundColor: toastBg, border: `2px solid ${toastBorder}`, color: toastColor, fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'flex-start', gap: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.5)', maxWidth: 420 }}>
           <div style={{ flexShrink: 0, marginTop: 1 }}>
-            {toast.type === 'success' ? <CheckCircle style={{ width: 18, height: 18 }} /> : <AlertCircle style={{ width: 18, height: 18 }} />}
+            {toast.type === 'success' ? <CheckCircle style={{ width: 18, height: 18 }} /> : toast.type === 'info' ? <AlertCircle style={{ width: 18, height: 18 }} /> : <AlertCircle style={{ width: 18, height: 18 }} />}
           </div>
-          <p style={{ margin: 0, lineHeight: 1.5 }}>{toast.msg}</p>
+          <p style={{ margin: 0, lineHeight: 1.5, flex: 1 }}>{toast.msg}</p>
           <button onClick={() => setToast(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, flexShrink: 0, opacity: 0.6 }}>
             <X style={{ width: 14, height: 14 }} />
           </button>
@@ -185,7 +223,7 @@ export default function PhilanthropistDashboardPage() {
           onSuccess={(newBal) => {
             setActBalance(newBal);
             setShowRefill(false);
-            showToast(`✅ ACT balance refilled! +${REFILL_ACT_AMOUNT} ACT. New balance: ${newBal} ACT`, 'success');
+            showToast(`✅ ACT refilled! +${REFILL_ACT_AMOUNT} ACT. New balance: ${newBal} ACT`, 'success');
             loadAll();
           }}
           userId={user?.id || ''}
@@ -219,7 +257,6 @@ export default function PhilanthropistDashboardPage() {
 
       <main style={{ maxWidth: 860, margin: '0 auto', padding: '28px 20px 80px', position: 'relative', zIndex: 10 }}>
 
-        {/* TITLE */}
         <div style={{ marginBottom: 28 }}>
           <p style={{ fontSize: 11, color: '#00B894', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Philanthropist Portal</p>
           <h1 style={{ fontSize: 'clamp(22px, 4vw, 30px)', fontWeight: 800, marginBottom: 6 }}>
@@ -231,8 +268,6 @@ export default function PhilanthropistDashboardPage() {
         {/* ACT BALANCE CARD */}
         <div style={{ marginBottom: 20, padding: '24px', borderRadius: 20, background: 'linear-gradient(135deg, #0d2137 0%, #0a1628 60%, #0d2137 100%)', border: `2px solid ${actColor}40`, position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(to right, ${actColor}, #00CEC9)` }} />
-          <div style={{ position: 'absolute', top: -30, right: -30, width: 160, height: 160, borderRadius: '50%', background: `${actColor}06` }} />
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
             <div>
               <p style={{ fontSize: 11, color: '#8FA3BF', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Activation Token Balance</p>
@@ -244,12 +279,10 @@ export default function PhilanthropistDashboardPage() {
                 <strong style={{ color: 'white' }}>{Math.floor(actBalance / ACT_PER_ACTIVATION)}</strong> activations remaining · <strong style={{ color: '#67e8f9' }}>{ACT_PER_ACTIVATION} ACT</strong> per activation
               </p>
             </div>
-            <button onClick={() => setShowRefill(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '11px 20px', borderRadius: 12, background: `linear-gradient(to right, ${actColor}, #00CEC9)`, color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer', flexShrink: 0, boxShadow: `0 4px 16px ${actColor}30` }}>
+            <button onClick={() => setShowRefill(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '11px 20px', borderRadius: 12, background: `linear-gradient(to right, ${actColor}, #00CEC9)`, color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer', flexShrink: 0 }}>
               <RefreshCw style={{ width: 15, height: 15 }} /> Refill ACT
             </button>
           </div>
-
-          {/* Progress bar */}
           <div style={{ backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 999, height: 10, overflow: 'hidden', marginBottom: 6 }}>
             <div style={{ height: '100%', width: `${actPct}%`, background: `linear-gradient(to right, ${actColor}, #00CEC9)`, borderRadius: 999, transition: 'width 0.6s ease' }} />
           </div>
@@ -257,19 +290,17 @@ export default function PhilanthropistDashboardPage() {
             <span style={{ fontSize: 11, color: '#8FA3BF' }}>0</span>
             <span style={{ fontSize: 11, color: '#8FA3BF' }}>{ACT_INITIAL_BALANCE} ACT</span>
           </div>
-
           {actBalance < 100 && (
             <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 10, backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.25)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <AlertCircle style={{ width: 14, height: 14, color: '#ff6b6b', flexShrink: 0 }} />
               <p style={{ fontSize: 12, color: '#ff6b6b', margin: 0 }}>
-                Low balance! Only <strong>{Math.floor(actBalance / ACT_PER_ACTIVATION)}</strong> activations left.{' '}
-                <button onClick={() => setShowRefill(true)} style={{ background: 'none', border: 'none', color: '#ff6b6b', textDecoration: 'underline', cursor: 'pointer', fontWeight: 700, padding: 0, fontSize: 12 }}>Refill now →</button>
+                Low balance! <button onClick={() => setShowRefill(true)} style={{ background: 'none', border: 'none', color: '#ff6b6b', textDecoration: 'underline', cursor: 'pointer', fontWeight: 700, padding: 0, fontSize: 12 }}>Refill now →</button>
               </p>
             </div>
           )}
         </div>
 
-        {/* STATS ROW */}
+        {/* STATS */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
           {[
             { label: 'Total Activated', value: totalActivated, color: '#00B894', bg: 'rgba(0,184,148,0.08)', border: 'rgba(0,184,148,0.2)', icon: <UserCheck style={{ width: 18, height: 18, color: '#00B894' }} /> },
@@ -293,10 +324,10 @@ export default function PhilanthropistDashboardPage() {
             <div>
               <p style={{ fontSize: 13, fontWeight: 700, color: '#ffd54f', marginBottom: 4 }}>Philanthropist Policy</p>
               <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.7, margin: 0 }}>
-                You are only permitted to charge beneficiaries <strong style={{ color: 'white' }}>$1 USD equivalent</strong> in local fiat currency.
-                Each activation costs <strong style={{ color: '#67e8f9' }}>{ACT_PER_ACTIVATION} ACT</strong> from your balance.
-                Refill with <strong style={{ color: 'white' }}>${REFILL_COST_USD} USDT</strong> to receive <strong style={{ color: '#00B894' }}>{REFILL_ACT_AMOUNT} ACT</strong>.
-                <strong style={{ color: '#ff6b6b' }}> Overcharging results in immediate removal.</strong>
+                Only charge beneficiaries <strong style={{ color: 'white' }}>$1 USD equivalent</strong> in local fiat.
+                Each activation costs <strong style={{ color: '#67e8f9' }}>{ACT_PER_ACTIVATION} ACT</strong>.
+                Refill with <strong style={{ color: 'white' }}>${REFILL_COST_USD} USDT</strong> for <strong style={{ color: '#00B894' }}>{REFILL_ACT_AMOUNT} ACT</strong>.
+                <strong style={{ color: '#ff6b6b' }}> Overcharging = immediate removal. Already-activated accounts are not charged.</strong>
               </p>
             </div>
           </div>
@@ -310,10 +341,11 @@ export default function PhilanthropistDashboardPage() {
           onSuccess={(newBal, newTotal, name) => {
             setActBalance(newBal);
             setTotalActivated(newTotal);
-            showToast(`✅ ${name} activated successfully! −${ACT_PER_ACTIVATION} ACT deducted. Balance: ${newBal} ACT`, 'success');
+            showToast(`✅ ${name} activated! −${ACT_PER_ACTIVATION} ACT deducted. Balance: ${newBal} ACT`, 'success');
             loadAll();
           }}
-          onError={(msg) => showToast(`❌ ${msg}`, 'error')}
+          onAlreadyActive={(name) => showToast(`ℹ️ ${name}'s account is already activated. No ACT was deducted.`, 'info')}
+          onError={(msg) => showToast(msg, 'error')}
           onLowBalance={() => setShowRefill(true)}
         />
 
@@ -328,12 +360,11 @@ export default function PhilanthropistDashboardPage() {
               </span>
             )}
           </div>
-
           {pendingUsers.length === 0 ? (
             <div style={{ padding: '48px 20px', textAlign: 'center' }}>
               <CheckCircle style={{ width: 44, height: 44, color: '#00B894', margin: '0 auto 12px' }} />
               <p style={{ fontSize: 15, color: 'white', fontWeight: 600, marginBottom: 4 }}>Queue is empty!</p>
-              <p style={{ fontSize: 13, color: '#8FA3BF' }}>No pending beneficiary activations at this time.</p>
+              <p style={{ fontSize: 13, color: '#8FA3BF' }}>No pending activations at this time.</p>
             </div>
           ) : (
             <div>
@@ -386,11 +417,12 @@ export default function PhilanthropistDashboardPage() {
 }
 
 // ── Activate by Email ─────────────────────────────────────────────────────────
-function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onError, onLowBalance }: {
+function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onAlreadyActive, onError, onLowBalance }: {
   userId: string;
   actBalance: number;
   totalActivated: number;
   onSuccess: (newBal: number, newTotal: number, name: string) => void;
+  onAlreadyActive: (name: string) => void;
   onError: (msg: string) => void;
   onLowBalance: () => void;
 }) {
@@ -414,10 +446,15 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onErro
 
   const handleActivate = async () => {
     if (!foundUser || !userId) return;
+
+    const name = foundUser.full_name || foundUser.email;
+
+    // Already active — show info, no charge
     if (foundUser.activation?.payment_status === 'verified') {
-      onError('This account is already activated.');
+      onAlreadyActive(name);
       return;
     }
+
     if (actBalance < ACT_PER_ACTIVATION) {
       onError(`Insufficient ACT balance. Need ${ACT_PER_ACTIVATION} ACT.`);
       onLowBalance();
@@ -426,24 +463,21 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onErro
 
     setActivating(true);
     try {
-      // 1. Activate or create activation record
-      if (foundUser.activation) {
-        const { error } = await supabase
-          .from('beneficiary_activations')
-          .update({ payment_status: 'verified', activation_method: 'philanthropist', activated_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq('user_id', foundUser.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('beneficiary_activations')
-          .insert({ user_id: foundUser.id, payment_status: 'verified', activation_method: 'philanthropist', activated_at: new Date().toISOString(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-        if (error) throw error;
+      const result = await activateBeneficiary(foundUser.id);
+
+      if (result.alreadyActive) {
+        onAlreadyActive(name);
+        setFoundUser({ ...foundUser, activation: { payment_status: 'verified' } });
+        return;
       }
 
-      // 2. Deduct ACT — using passed-in live values
-      const { newBalance, newTotal } = await deductACT(userId, actBalance, totalActivated);
+      if (!result.success) {
+        onError(`Activation failed: ${result.error}`);
+        return;
+      }
 
-      const name = foundUser.full_name || foundUser.email;
+      // Deduct ACT only on success
+      const { newBalance, newTotal } = await deductACT(userId, actBalance, totalActivated);
       onSuccess(newBalance, newTotal, name);
       setFoundUser(null);
       setEmail('');
@@ -463,7 +497,6 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onErro
           <p style={{ fontSize: 11, color: '#8FA3BF', margin: 0 }}>Search and activate a specific beneficiary by their registered email</p>
         </div>
       </div>
-
       <div style={{ display: 'flex', gap: 10, marginBottom: foundUser || notFound ? 14 : 0 }}>
         <input
           placeholder="Enter beneficiary's registered email address"
@@ -477,13 +510,11 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onErro
           {searching ? 'Searching...' : 'Search'}
         </button>
       </div>
-
       {notFound && (
         <div style={{ padding: '12px 14px', borderRadius: 10, backgroundColor: 'rgba(255,107,107,0.08)', border: '1px solid rgba(255,107,107,0.2)' }}>
-          <p style={{ fontSize: 13, color: '#ff6b6b', margin: 0 }}>No account found. The user must register first before they can be activated.</p>
+          <p style={{ fontSize: 13, color: '#ff6b6b', margin: 0 }}>No account found. The user must register first.</p>
         </div>
       )}
-
       {foundUser && (
         <div style={{ padding: '16px', borderRadius: 12, backgroundColor: 'rgba(0,206,201,0.04)', border: '1px solid rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', gap: 14 }}>
           {foundUser.profile_picture ? (
@@ -502,20 +533,24 @@ function ActivateByEmail({ userId, actBalance, totalActivated, onSuccess, onErro
               <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(255,193,7,0.15)', color: '#ffc107', border: '1px solid rgba(255,193,7,0.3)', fontWeight: 600 }}>Not Activated</span>
             )}
           </div>
-          {foundUser.activation?.payment_status !== 'verified' && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-              <button
-                onClick={handleActivate}
-                disabled={activating || actBalance < ACT_PER_ACTIVATION}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '11px 20px', borderRadius: 10, background: actBalance < ACT_PER_ACTIVATION ? 'rgba(255,107,107,0.15)' : 'linear-gradient(to right, #00B894, #00CEC9)', color: actBalance < ACT_PER_ACTIVATION ? '#ff6b6b' : 'white', fontWeight: 700, fontSize: 13, border: actBalance < ACT_PER_ACTIVATION ? '1px solid rgba(255,107,107,0.3)' : 'none', cursor: (activating || actBalance < ACT_PER_ACTIVATION) ? 'not-allowed' : 'pointer', opacity: activating ? 0.7 : 1 }}
-              >
-                {activating
-                  ? <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Activating...</>
-                  : <><CheckCircle style={{ width: 15, height: 15 }} /> Activate</>}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+            {foundUser.activation?.payment_status === 'verified' ? (
+              <button onClick={() => onAlreadyActive(foundUser.full_name || foundUser.email)} style={{ padding: '10px 16px', borderRadius: 10, backgroundColor: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.3)', color: '#00B894', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                ✓ Active
               </button>
-              <span style={{ fontSize: 10, color: '#8FA3BF' }}>costs {ACT_PER_ACTIVATION} ACT</span>
-            </div>
-          )}
+            ) : (
+              <>
+                <button
+                  onClick={handleActivate}
+                  disabled={activating || actBalance < ACT_PER_ACTIVATION}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '11px 20px', borderRadius: 10, background: actBalance < ACT_PER_ACTIVATION ? 'rgba(255,107,107,0.15)' : 'linear-gradient(to right, #00B894, #00CEC9)', color: actBalance < ACT_PER_ACTIVATION ? '#ff6b6b' : 'white', fontWeight: 700, fontSize: 13, border: actBalance < ACT_PER_ACTIVATION ? '1px solid rgba(255,107,107,0.3)' : 'none', cursor: (activating || actBalance < ACT_PER_ACTIVATION) ? 'not-allowed' : 'pointer', opacity: activating ? 0.7 : 1 }}
+                >
+                  {activating ? <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Activating...</> : <><CheckCircle style={{ width: 15, height: 15 }} /> Activate</>}
+                </button>
+                <span style={{ fontSize: 10, color: '#8FA3BF' }}>costs {ACT_PER_ACTIVATION} ACT</span>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -547,80 +582,53 @@ function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
 
     setLoading(true); setError('');
     try {
-      // Check hash not already used for refill
-      const { data: already } = await supabase
-        .from('philanthropists')
-        .select('id')
-        .eq('last_refill_hash', cleanHash)
-        .maybeSingle();
+      const { data: already } = await supabase.from('philanthropists').select('id').eq('last_refill_hash', cleanHash).maybeSingle();
       if (already) { setError('This transaction has already been used for a refill.'); setLoading(false); return; }
 
-      // Try multiple BSC RPC endpoints
-      const rpcs = [
-        'https://bsc-dataseed1.binance.org/',
-        'https://bsc-dataseed2.binance.org/',
-        'https://bsc-dataseed1.defibit.io/',
-      ];
-
+      const rpcs = ['https://bsc-dataseed1.binance.org/', 'https://bsc-dataseed2.binance.org/', 'https://bsc-dataseed1.defibit.io/'];
       let receipt = null;
       for (const rpc of rpcs) {
         try {
-          const res = await fetch(rpc, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [cleanHash] }),
-          });
+          const res = await fetch(rpc, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [cleanHash] }) });
           const data = await res.json();
           if (data.result) { receipt = data.result; break; }
         } catch { continue; }
       }
 
-      if (!receipt) { setError('Transaction not found. Check the hash and ensure it is confirmed on BSC.'); setLoading(false); return; }
-      if (receipt.status !== '0x1') { setError('Transaction failed on blockchain. Use a successful transaction.'); setLoading(false); return; }
+      if (!receipt) { setError('Transaction not found. Confirm it is on BSC and fully confirmed.'); setLoading(false); return; }
+      if (receipt.status !== '0x1') { setError('Transaction failed on blockchain.'); setLoading(false); return; }
 
       const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
       const YOUR_WALLET = WALLET_ADDRESS.toLowerCase();
-      const MIN_AMOUNT = 65;
-
       let verified = false;
-      let foundAmount = 0;
       for (const log of receipt.logs || []) {
-        if (
-          log.address?.toLowerCase() === USDT_CONTRACT &&
-          log.topics?.[0]?.toLowerCase() === TRANSFER_TOPIC &&
-          log.topics?.length >= 3
-        ) {
+        if (log.address?.toLowerCase() === USDT_CONTRACT && log.topics?.[0]?.toLowerCase() === TRANSFER_TOPIC && log.topics?.length >= 3) {
           const toAddress = '0x' + log.topics[2].slice(26).toLowerCase();
           if (toAddress === YOUR_WALLET) {
             const rawBig = BigInt(log.data);
             let amount = Number(rawBig) / 1e18;
             if (amount < 0.000001) amount = Number(rawBig) / 1e6;
-            foundAmount = amount;
-            if (amount >= MIN_AMOUNT) { verified = true; break; }
+            if (amount >= 65) { verified = true; break; }
             else { setError(`Amount too low: ${amount.toFixed(2)} USDT. Required: $${REFILL_COST_USD}.`); setLoading(false); return; }
           }
         }
       }
+      if (!verified) { setError(`No $${REFILL_COST_USD}+ USDT transfer to our wallet found in this transaction.`); setLoading(false); return; }
 
-      if (!verified) { setError(`No USDT transfer of $${REFILL_COST_USD}+ to our wallet found. Check you sent to the correct address.`); setLoading(false); return; }
-
-      // Credit ACT
-      const newBalance = currentBalance + REFILL_ACT_AMOUNT;
       const newBalance = currentBalance + REFILL_ACT_AMOUNT;
       // Try user_id first, fallback to id
       const { data: refillRows } = await supabase
-        .from("philanthropists")
+        .from('philanthropists')
         .update({ act_balance: newBalance, last_refill_hash: cleanHash, last_refill_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq("user_id", userId)
-        .select("id");
+        .eq('user_id', userId)
+        .select('id');
       if (!refillRows || refillRows.length === 0) {
-        const { error: dbErr2 } = await supabase
-          .from("philanthropists")
+        const { error: dbErr } = await supabase
+          .from('philanthropists')
           .update({ act_balance: newBalance, last_refill_hash: cleanHash, last_refill_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq("id", userId);
-        if (dbErr2) throw dbErr2;
+          .eq('id', userId);
+        if (dbErr) throw dbErr;
       }
-
       onSuccess(newBalance);
     } catch (e: any) {
       setError('Verification failed: ' + (e.message || 'Please try again.'));
@@ -644,9 +652,7 @@ function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
             <X style={{ width: 16, height: 16 }} />
           </button>
         </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
-          {/* Step 1 */}
           <div style={{ padding: '14px 16px', borderRadius: 12, backgroundColor: 'rgba(0,206,201,0.04)', border: '1px solid rgba(0,206,201,0.12)' }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: '#00CEC9', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'linear-gradient(to right, #00CEC9, #00B894)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: 'white', flexShrink: 0 }}>1</span>
@@ -660,38 +666,23 @@ function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
             </div>
             <p style={{ fontSize: 11, color: '#ffc107', marginTop: 8, marginBottom: 0 }}>⚠️ Only BNB Smart Chain (BEP20). Other networks = lost funds.</p>
           </div>
-
-          {/* Step 2 */}
           <div style={{ padding: '14px 16px', borderRadius: 12, backgroundColor: 'rgba(0,184,148,0.04)', border: '1px solid rgba(0,184,148,0.12)' }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: '#00B894', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'linear-gradient(to right, #00B894, #00CEC9)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: 'white', flexShrink: 0 }}>2</span>
               Paste your BSC transaction hash:
             </p>
-            <input
-              placeholder="0x... paste transaction hash here"
-              value={txHash}
-              onChange={(e) => { setTxHash(e.target.value); setError(''); }}
-              style={{ width: '100%', padding: '11px 14px', borderRadius: 8, backgroundColor: '#0A1628', border: `1px solid ${error ? 'rgba(255,107,107,0.4)' : 'rgba(0,206,201,0.2)'}`, color: 'white', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-            />
+            <input placeholder="0x... paste transaction hash here" value={txHash} onChange={(e) => { setTxHash(e.target.value); setError(''); }} style={{ width: '100%', padding: '11px 14px', borderRadius: 8, backgroundColor: '#0A1628', border: `1px solid ${error ? 'rgba(255,107,107,0.4)' : 'rgba(0,206,201,0.2)'}`, color: 'white', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
             {error && <p style={{ fontSize: 12, color: '#ff6b6b', marginTop: 6, marginBottom: 0 }}>{error}</p>}
           </div>
         </div>
-
         <div style={{ padding: '12px 16px', borderRadius: 10, backgroundColor: 'rgba(0,184,148,0.06)', border: '1px solid rgba(0,184,148,0.15)', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
           <Award style={{ width: 16, height: 16, color: '#00B894', flexShrink: 0 }} />
           <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>
-            You will receive <strong style={{ color: '#00B894' }}>{REFILL_ACT_AMOUNT} ACT</strong> — enough to activate <strong style={{ color: 'white' }}>{REFILL_ACT_AMOUNT / ACT_PER_ACTIVATION} beneficiaries</strong>. New balance will be <strong style={{ color: '#67e8f9' }}>{currentBalance + REFILL_ACT_AMOUNT} ACT</strong>.
+            You will receive <strong style={{ color: '#00B894' }}>{REFILL_ACT_AMOUNT} ACT</strong> — activates <strong style={{ color: 'white' }}>{REFILL_ACT_AMOUNT / ACT_PER_ACTIVATION} beneficiaries</strong>. New balance: <strong style={{ color: '#67e8f9' }}>{currentBalance + REFILL_ACT_AMOUNT} ACT</strong>.
           </p>
         </div>
-
-        <button
-          onClick={handleSubmit}
-          disabled={loading || !txHash.trim()}
-          style={{ width: '100%', padding: '14px', borderRadius: 12, background: (loading || !txHash.trim()) ? 'rgba(0,206,201,0.15)' : 'linear-gradient(to right, #00B894, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: (loading || !txHash.trim()) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-        >
-          {loading
-            ? <><div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />Verifying on blockchain...</>
-            : <><RefreshCw style={{ width: 18, height: 18 }} />Verify & Refill {REFILL_ACT_AMOUNT} ACT</>}
+        <button onClick={handleSubmit} disabled={loading || !txHash.trim()} style={{ width: '100%', padding: '14px', borderRadius: 12, background: (loading || !txHash.trim()) ? 'rgba(0,206,201,0.15)' : 'linear-gradient(to right, #00B894, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: (loading || !txHash.trim()) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          {loading ? <><div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />Verifying...</> : <><RefreshCw style={{ width: 18, height: 18 }} />Verify & Refill {REFILL_ACT_AMOUNT} ACT</>}
         </button>
       </div>
     </div>
