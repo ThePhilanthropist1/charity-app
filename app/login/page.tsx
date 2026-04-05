@@ -25,10 +25,9 @@ export default function LoginPage() {
       if (result.success) {
         localStorage.setItem('auth_token', result.data.token);
         localStorage.setItem('auth_user', JSON.stringify(result.data.user));
-        const role = result.data.user.role;
-        if (role === 'admin') router.push('/admin');
-        else if (role === 'philanthropist') router.push('/philanthropist-dashboard');
-        else router.push('/beneficiary-dashboard');
+        // ALL users always land on beneficiary dashboard first.
+        // Admin panel and Philanthropist dashboard are accessible from there.
+        router.push('/beneficiary-dashboard');
       } else {
         setError(result.error || 'Invalid email or password');
       }
