@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase-client';
 import { useAuth } from '@/contexts/auth-context';
 import {
   CheckCircle, XCircle, Clock, Users, ArrowLeft,
-  User, Phone, MapPin, Calendar, FileText, Shield, Eye
+  User, Phone, MapPin, FileText, Shield, Eye
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -39,13 +39,11 @@ export default function AdminKYCReviewPage() {
   const loadKYCSubmissions = async () => {
     setLoading(true);
     try {
-      // Fetch pending KYC submissions joined with user info
       const { data, error } = await supabase
         .from('kyc_submissions')
         .select(`*, users:user_id (full_name, email, country, phone)`)
         .eq('status', 'pending')
         .order('submitted_at', { ascending: true });
-
       if (error) throw error;
       setKycSubmissions(data || []);
     } catch (e) { console.error(e); }
@@ -68,6 +66,7 @@ export default function AdminKYCReviewPage() {
     if (!selectedKYC || !user?.id) return;
     setSubmitting(true);
     try {
+      // Update KYC status
       const { error } = await supabase
         .from('kyc_submissions')
         .update({
@@ -77,15 +76,28 @@ export default function AdminKYCReviewPage() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedKYC.id);
-
       if (error) throw error;
 
-      // Update the user's role to philanthropist
+      // Only update role to philanthropist if the user is NOT already an admin
+      // This prevents overwriting admin role for admin users who also apply
       if (selectedKYC.user_id) {
-        await supabase.from('users').update({ role: 'philanthropist' }).eq('id', selectedKYC.user_id);
+        const { data: targetUser } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', selectedKYC.user_id)
+          .single();
+
+        if (targetUser?.role !== 'admin') {
+          await supabase
+            .from('users')
+            .update({ role: 'philanthropist', updated_at: new Date().toISOString() })
+            .eq('id', selectedKYC.user_id);
+        }
+        // Admin users keep their 'admin' role — philanthropist status is
+        // determined by kyc_submissions.status = 'approved' in the dashboard
       }
 
-      showToast('KYC approved successfully! User is now a Philanthropist.', 'success');
+      showToast('KYC approved! User is now a Philanthropist.', 'success');
       setSelectedKYC(null);
       setReviewNotes('');
       setReviewAction(null);
@@ -111,7 +123,6 @@ export default function AdminKYCReviewPage() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedKYC.id);
-
       if (error) throw error;
 
       showToast('KYC rejected.', 'success');
