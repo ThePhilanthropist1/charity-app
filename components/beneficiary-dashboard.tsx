@@ -16,7 +16,6 @@ export function BeneficiaryActivationFlow() {
   const [copied, setCopied] = useState(false);
   const [isPiBrowser, setIsPiBrowser] = useState(false);
   const [piReady, setPiReady] = useState(false);
-  const [piDebug, setPiDebug] = useState('');
 
   const walletAddress = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
 
@@ -25,19 +24,12 @@ export function BeneficiaryActivationFlow() {
       const ua = navigator.userAgent || '';
       const Pi = (window as any).Pi;
 
-      // Log for debugging
-      const debug = `UA:${ua.slice(0, 60)} | Pi:${!!Pi} | PiKeys:${Pi ? Object.keys(Pi).join(',') : 'none'}`;
-      setPiDebug(debug);
-      console.log('[Pi Debug attempt ' + attempt + ']', debug);
-
-      // UA-based detection (Android Pi Browser does include identifiers)
       const uaMatch =
         ua.includes('PiBrowser') ||
         ua.includes('Pi Network') ||
         ua.includes('PiNetwork') ||
         ua.toLowerCase().includes('pi browser');
 
-      // SDK-based detection: Pi object must exist AND have expected methods
       const sdkMatch = !!(
         Pi &&
         typeof Pi.init === 'function' &&
@@ -52,14 +44,12 @@ export function BeneficiaryActivationFlow() {
         try {
           Pi.init({ version: '2.0', sandbox: false });
           setPiReady(true);
-          console.log('[Pi] SDK initialized successfully');
         } catch (e: any) {
           console.error('[Pi] Init error:', e?.message);
         }
       }
     };
 
-    // Try at 0, 500ms, 1.5s, 3s to catch lazy-loaded SDK
     tryInit(0);
     const t1 = setTimeout(() => tryInit(1), 500);
     const t2 = setTimeout(() => tryInit(2), 1500);
@@ -82,15 +72,11 @@ export function BeneficiaryActivationFlow() {
   const handlePiPayment = async () => {
     setLoading(true);
     setError('');
-
     try {
       const Pi = (window as any).Pi;
       if (!Pi) throw new Error('Pi SDK not available. Please open this app in Pi Browser.');
       if (typeof Pi.authenticate !== 'function') throw new Error('Pi SDK not fully loaded. Please refresh the page.');
 
-      console.log('[Pi] Starting authentication...');
-
-      // Authenticate first
       const authResult = await Pi.authenticate(
         ['payments', 'username'],
         (incompletePayment: any) => {
@@ -98,16 +84,10 @@ export function BeneficiaryActivationFlow() {
         }
       );
 
-      console.log('[Pi] Auth result:', authResult);
-
       if (!authResult?.user) {
         throw new Error('Pi authentication failed. Please make sure you are logged into Pi Network.');
       }
 
-      console.log('[Pi] Authenticated as:', authResult.user.username);
-      console.log('[Pi] Creating payment...');
-
-      // Create payment — uses callbacks not async/await
       Pi.createPayment(
         {
           amount: 6.0,
@@ -116,22 +96,16 @@ export function BeneficiaryActivationFlow() {
         },
         {
           onReadyForServerApproval: async (paymentId: string) => {
-            console.log('[Pi] Ready for server approval:', paymentId);
             try {
               const token = localStorage.getItem('auth_token');
-              const res = await fetch('/api/activation', {
+              await fetch('/api/activation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
                 body: JSON.stringify({ action: 'approve_pi', payment_id: paymentId }),
               });
-              const data = await res.json();
-              console.log('[Pi] Approval response:', data);
-            } catch (e) {
-              console.error('[Pi] Approval fetch error:', e);
-            }
+            } catch (e) { console.error('[Pi] Approval fetch error:', e); }
           },
           onReadyForServerCompletion: async (paymentId: string, txid: string) => {
-            console.log('[Pi] Ready for server completion. txid:', txid);
             try {
               const token = localStorage.getItem('auth_token');
               const response = await fetch('/api/activation', {
@@ -146,7 +120,6 @@ export function BeneficiaryActivationFlow() {
                 }),
               });
               const result = await response.json();
-              console.log('[Pi] Completion result:', result);
               if (result.success) setSuccess(true);
               else setError(result.error || 'Payment completion failed. Save this TX ID: ' + txid);
             } catch (e) {
@@ -154,20 +127,11 @@ export function BeneficiaryActivationFlow() {
             }
             setLoading(false);
           },
-          onCancel: () => {
-            console.log('[Pi] Payment cancelled');
-            setError('Payment was cancelled.');
-            setLoading(false);
-          },
-          onError: (err: any, payment: any) => {
-            console.error('[Pi] Payment error:', err, payment);
-            setError(err?.message || 'Pi payment failed. Please try again.');
-            setLoading(false);
-          },
+          onCancel: () => { setError('Payment was cancelled.'); setLoading(false); },
+          onError: (err: any) => { setError(err?.message || 'Pi payment failed. Please try again.'); setLoading(false); },
         }
       );
     } catch (err: any) {
-      console.error('[Pi] handlePiPayment error:', err);
       setError(err?.message || 'Pi payment failed. Please try again.');
       setLoading(false);
     }
@@ -207,10 +171,33 @@ export function BeneficiaryActivationFlow() {
     );
   }
 
+  // Build methods list — Pi option only included when user is in Pi Browser
   const methods = [
-    { id: 'pi', icon: <Coins style={{ width: 26, height: 26, color: '#00CEC9' }} />, bg: 'rgba(0,206,201,0.12)', title: 'Pi Network', amount: '6.0 Pi', desc: 'Pay with Pi — requires Pi Browser app' },
-    { id: 'wallet', icon: <CreditCard style={{ width: 26, height: 26, color: '#00B894' }} />, bg: 'rgba(0,184,148,0.12)', title: 'Wallet Transfer', amount: '1 USDT', desc: 'Send USDT (BEP20) to our wallet and verify' },
-    { id: 'philanthropist', icon: <Users style={{ width: 26, height: 26, color: '#67e8f9' }} />, bg: 'rgba(103,232,249,0.12)', title: 'Via Philanthropist', amount: '~$1 Fiat', desc: 'Pay a regional philanthropist in your local currency' },
+    // Pi option: only shown when Pi Browser is detected
+    ...(isPiBrowser ? [{
+      id: 'pi' as const,
+      icon: <Coins style={{ width: 26, height: 26, color: '#00CEC9' }} />,
+      bg: 'rgba(0,206,201,0.12)',
+      title: 'Pi Network',
+      amount: '6.0 Pi',
+      desc: 'Pay with Pi via your Pi wallet',
+    }] : []),
+    {
+      id: 'wallet' as const,
+      icon: <CreditCard style={{ width: 26, height: 26, color: '#00B894' }} />,
+      bg: 'rgba(0,184,148,0.12)',
+      title: 'Wallet Transfer',
+      amount: '1 USDT',
+      desc: 'Send USDT (BEP20) to our wallet and verify',
+    },
+    {
+      id: 'philanthropist' as const,
+      icon: <Users style={{ width: 26, height: 26, color: '#67e8f9' }} />,
+      bg: 'rgba(103,232,249,0.12)',
+      title: 'Via Philanthropist',
+      amount: '~$1 Fiat',
+      desc: 'Pay a regional philanthropist in your local currency',
+    },
   ];
 
   return (
@@ -227,8 +214,9 @@ export function BeneficiaryActivationFlow() {
       )}
 
       {methods.map((m) => (
-        <div key={m.id}
-          onClick={() => selectMethod(m.id as any)}
+        <div
+          key={m.id}
+          onClick={() => selectMethod(m.id)}
           style={{ padding: '18px 20px', borderRadius: 16, border: '1px solid ' + (method === m.id ? 'rgba(0,206,201,0.5)' : 'rgba(0,206,201,0.15)'), backgroundColor: method === m.id ? 'rgba(0,206,201,0.04)' : 'rgba(255,255,255,0.02)', cursor: 'pointer', transition: 'all 0.2s', boxShadow: method === m.id ? '0 0 24px rgba(0,206,201,0.08)' : 'none' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: method === m.id ? 16 : 0 }}>
@@ -240,13 +228,8 @@ export function BeneficiaryActivationFlow() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 15, color: 'white' }}>{m.title}</span>
                   {m.id === 'pi' && (
-                    <span style={{
-                      fontSize: 10, padding: '2px 8px', borderRadius: 999, fontWeight: 600,
-                      backgroundColor: isPiBrowser ? (piReady ? 'rgba(0,184,148,0.2)' : 'rgba(255,193,7,0.15)') : 'rgba(255,193,7,0.15)',
-                      color: isPiBrowser ? (piReady ? '#00B894' : '#ffc107') : '#ffc107',
-                      border: '1px solid ' + (isPiBrowser ? (piReady ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)') : 'rgba(255,193,7,0.3)')
-                    }}>
-                      {isPiBrowser ? (piReady ? '✓ Ready' : 'Initializing...') : 'Pi Browser Only'}
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, fontWeight: 600, backgroundColor: piReady ? 'rgba(0,184,148,0.2)' : 'rgba(255,193,7,0.15)', color: piReady ? '#00B894' : '#ffc107', border: '1px solid ' + (piReady ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)') }}>
+                      {piReady ? '✓ Ready' : 'Initializing...'}
                     </span>
                   )}
                 </div>
@@ -256,23 +239,10 @@ export function BeneficiaryActivationFlow() {
             </div>
           </div>
 
-          {/* PI PAYMENT */}
+          {/* PI PAYMENT — only rendered when isPiBrowser is true */}
           {method === 'pi' && m.id === 'pi' && (
             <div onClick={(e) => e.stopPropagation()}>
-              {!isPiBrowser ? (
-                <div style={{ display: 'flex', gap: 10, padding: '14px 16px', backgroundColor: 'rgba(255,193,7,0.06)', border: '1px solid rgba(255,193,7,0.25)', borderRadius: 12 }}>
-                  <Info style={{ width: 16, height: 16, color: '#ffc107', flexShrink: 0, marginTop: 1 }} />
-                  <div>
-                    <p style={{ fontSize: 13, color: '#ffd54f', fontWeight: 600, margin: '0 0 4px' }}>Pi Browser Required</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6, margin: '0 0 10px' }}>
-                      Open this website inside your Pi Browser app to pay with Pi. Copy the URL below and paste it in Pi Browser.
-                    </p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', backgroundColor: 'rgba(0,206,201,0.06)', borderRadius: 8, border: '1px solid rgba(0,206,201,0.15)' }}>
-                      <code style={{ fontSize: 11, color: '#67e8f9', wordBreak: 'break-all', flex: 1 }}>https://shimmering-cassata-c25449.netlify.app/beneficiary/activation</code>
-                    </div>
-                  </div>
-                </div>
-              ) : !piReady ? (
+              {!piReady ? (
                 <div style={{ display: 'flex', gap: 10, padding: '14px 16px', backgroundColor: 'rgba(255,193,7,0.06)', border: '1px solid rgba(255,193,7,0.25)', borderRadius: 12 }}>
                   <div style={{ width: 16, height: 16, border: '2px solid rgba(255,193,7,0.3)', borderTop: '2px solid #ffc107', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
                   <p style={{ fontSize: 13, color: '#ffd54f', margin: 0 }}>Initializing Pi SDK... Please wait a moment.</p>
@@ -333,37 +303,21 @@ export function BeneficiaryActivationFlow() {
           {method === 'philanthropist' && m.id === 'philanthropist' && (
             <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(0,206,201,0.04)', borderRadius: 12, border: '1px solid rgba(0,206,201,0.12)', alignItems: 'flex-start' }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #00CEC9, #00B894)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>1</div>
-                  <div>
-                    <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Find a Philanthropist in Your Region</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: '0 0 10px', lineHeight: 1.6 }}>Join our Telegram group to find a verified philanthropist near you.</p>
-                    <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, backgroundColor: 'rgba(0,136,204,0.15)', border: '1px solid rgba(0,136,204,0.3)', color: '#67e8f9', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
-                      <Send style={{ width: 13, height: 13 }} /> Open Telegram Group <ExternalLink style={{ width: 11, height: 11 }} />
-                    </a>
+                {[
+                  { num: 1, color: 'linear-gradient(to right, #00CEC9, #00B894)', title: 'Find a Philanthropist in Your Region', body: 'Join our Telegram group to find a verified philanthropist near you.', extra: <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, backgroundColor: 'rgba(0,136,204,0.15)', border: '1px solid rgba(0,136,204,0.3)', color: '#67e8f9', fontSize: 12, fontWeight: 600, textDecoration: 'none', marginTop: 10 }}><Send style={{ width: 13, height: 13 }} /> Open Telegram Group <ExternalLink style={{ width: 11, height: 11 }} /></a>, bg: 'rgba(0,206,201,0.04)', border: 'rgba(0,206,201,0.12)' },
+                  { num: 2, color: 'linear-gradient(to right, #00B894, #00CEC9)', title: 'Send $1 Equivalent in Your Local Currency', body: 'Pay using any local fiat method they accept. Methods listed on Telegram.', bg: 'rgba(0,184,148,0.04)', border: 'rgba(0,184,148,0.12)' },
+                  { num: 3, color: 'linear-gradient(to right, #67e8f9, #00CEC9)', numColor: '#0A1628', title: 'Message the Philanthropist on Telegram', body: 'Send your payment receipt and registered email. Activation within 24 hours.', bg: 'rgba(103,232,249,0.04)', border: 'rgba(103,232,249,0.12)' },
+                  { num: 4, color: 'linear-gradient(to right, #ffc107, #ff9800)', title: 'Wait for Activation Confirmation', body: 'Log out and back in once activated. Philanthropists must process within 24 hours.', bg: 'rgba(255,193,7,0.04)', border: 'rgba(255,193,7,0.12)' },
+                ].map((step) => (
+                  <div key={step.num} style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: step.bg, borderRadius: 12, border: `1px solid ${step.border}`, alignItems: 'flex-start' }}>
+                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: step.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: step.numColor || 'white' }}>{step.num}</div>
+                    <div>
+                      <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>{step.title}</p>
+                      <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: step.body }} />
+                      {step.extra}
+                    </div>
                   </div>
-                </div>
-                <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(0,184,148,0.04)', borderRadius: 12, border: '1px solid rgba(0,184,148,0.12)', alignItems: 'flex-start' }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #00B894, #00CEC9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>2</div>
-                  <div>
-                    <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Send $1 Equivalent in Your Local Currency</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>Pay using any local fiat method they accept. Methods listed on Telegram.</p>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(103,232,249,0.04)', borderRadius: 12, border: '1px solid rgba(103,232,249,0.12)', alignItems: 'flex-start' }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #67e8f9, #00CEC9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: '#0A1628' }}>3</div>
-                  <div>
-                    <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Message the Philanthropist on Telegram</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>Send your <strong style={{ color: 'white' }}>payment receipt</strong> and <strong style={{ color: 'white' }}>registered email</strong>. Activation within <strong style={{ color: '#00B894' }}>24 hours</strong>.</p>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 12, padding: '14px 16px', backgroundColor: 'rgba(255,193,7,0.04)', borderRadius: 12, border: '1px solid rgba(255,193,7,0.12)', alignItems: 'flex-start' }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'linear-gradient(to right, #ffc107, #ff9800)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: 'white' }}>4</div>
-                  <div>
-                    <p style={{ fontSize: 13, color: 'white', fontWeight: 600, margin: '0 0 4px' }}>Wait for Activation Confirmation</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, lineHeight: 1.6 }}>Log out and back in once activated. Philanthropists must process within <strong style={{ color: '#ffc107' }}>24 hours</strong>.</p>
-                  </div>
-                </div>
+                ))}
               </div>
               <div style={{ padding: '12px 16px', backgroundColor: 'rgba(0,206,201,0.06)', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <MessageCircle style={{ width: 15, height: 15, color: '#00CEC9', flexShrink: 0 }} />
