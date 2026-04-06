@@ -1,8 +1,8 @@
 'use client';
-
 import { BeneficiaryActivationFlow } from '@/components/beneficiary-dashboard';
 import { ProtectedRoute } from '@/components/protected-route';
 import Image from 'next/image';
+import Link from 'next/link';
 
 export default function ActivationPage() {
   return (
@@ -13,6 +13,7 @@ export default function ActivationPage() {
           <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0,206,201,0.08) 0%, transparent 70%)', borderRadius: '50%' }} />
           <div style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: 500, height: 500, background: 'radial-gradient(circle, rgba(0,184,148,0.08) 0%, transparent 70%)', borderRadius: '50%' }} />
         </div>
+
         {/* HEADER */}
         <header style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(10,22,40,0.92)', backdropFilter: 'blur(12px)' }}>
           <div style={{ maxWidth: 580, margin: '0 auto', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -23,6 +24,7 @@ export default function ActivationPage() {
             <a href="/" style={{ fontSize: 13, color: '#67e8f9', textDecoration: 'none' }}>← Home</a>
           </div>
         </header>
+
         {/* MAIN */}
         <main style={{ flex: 1, paddingTop: 80, paddingBottom: 60, position: 'relative', zIndex: 10 }}>
           <div style={{ maxWidth: 580, margin: '0 auto', padding: '0 20px' }}>
@@ -45,9 +47,18 @@ export default function ActivationPage() {
             <BeneficiaryActivationFlow />
           </div>
         </main>
+
         {/* FOOTER */}
-        <footer style={{ position: 'relative', zIndex: 10, borderTop: '1px solid rgba(255,255,255,0.05)', padding: '16px 20px', textAlign: 'center' }}>
-          <p style={{ fontSize: 12, color: '#4A5568' }}>© 2026 Charity Token Project. All rights reserved.</p>
+        <footer style={{ position: 'relative', zIndex: 10, borderTop: '1px solid rgba(255,255,255,0.06)', padding: '18px 20px', textAlign: 'center' }}>
+          <p style={{ fontSize: 12, color: '#4A5568', marginBottom: 10 }}>© 2026 Charity Token Project. All rights reserved.</p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Link href="/terms" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)', transition: 'all 0.2s' }}>
+              Terms of Service
+            </Link>
+            <Link href="/privacy" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)', transition: 'all 0.2s' }}>
+              Privacy Policy
+            </Link>
+          </div>
         </footer>
       </div>
     </ProtectedRoute>

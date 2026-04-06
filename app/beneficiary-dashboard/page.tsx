@@ -9,6 +9,7 @@ import {
   Camera, ChevronRight, Award, Download, AlertCircle, Shield, Users
 } from 'lucide-react';
 import Image from 'next/image';
+import Link from 'next/link';
 
 // ─── MEMBERSHIP CARD ─────────────────────────────────────────────────────────
 function MembershipCard({ userId, fullName, email, profileImage, joinDate, country, phone, isActivated }: {
@@ -56,13 +57,7 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
         <div style={{ padding: '16px 20px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* Charity Token logo instead of CT text */}
-              <img
-                src="/Charity token logo.jpg"
-                alt="Charity Token"
-                style={{ width: 32, height: 32, borderRadius: 8, objectFit: 'cover' }}
-                crossOrigin="anonymous"
-              />
+              <img src="/Charity token logo.jpg" alt="Charity Token" style={{ width: 32, height: 32, borderRadius: 8, objectFit: 'cover' }} crossOrigin="anonymous" />
               <div>
                 <p style={{ fontSize: 11, fontWeight: 800, color: '#00CEC9', margin: 0, letterSpacing: 1 }}>CHARITY TOKEN</p>
                 <p style={{ fontSize: 8, color: 'rgba(207,250,254,0.6)', margin: 0 }}>MEMBERSHIP CARD</p>
@@ -112,6 +107,23 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
   );
 }
 
+// ─── TERMS & PRIVACY FOOTER BAR ───────────────────────────────────────────────
+function LegalFooter() {
+  return (
+    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '18px 20px', textAlign: 'center', marginTop: 'auto' }}>
+      <p style={{ fontSize: 12, color: '#4A5568', marginBottom: 10 }}>© 2026 Charity Token Project. All rights reserved.</p>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <Link href="/terms" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+          Terms of Service
+        </Link>
+        <Link href="/privacy" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+          Privacy Policy
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export default function BeneficiaryDashboardPage() {
   const router = useRouter();
@@ -151,52 +163,28 @@ export default function BeneficiaryDashboardPage() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const { data: freshUser } = await supabase
-        .from('users')
-        .select('role, email')
-        .eq('id', user.id)
-        .single();
-
+      const { data: freshUser } = await supabase.from('users').select('role, email').eq('id', user.id).single();
       const role = freshUser?.role || user?.role || '';
       const email = (freshUser?.email || user?.email || '').toLowerCase();
-
       setIsAdmin(role === 'admin' || email === 'dinfadashe@gmail.com');
 
       let philFlag = role === 'philanthropist';
       if (!philFlag) {
-        const { data: kycData } = await supabase
-          .from('kyc_submissions')
-          .select('status')
-          .eq('user_id', user.id)
-          .eq('status', 'approved')
-          .maybeSingle();
+        const { data: kycData } = await supabase.from('kyc_submissions').select('status').eq('user_id', user.id).eq('status', 'approved').maybeSingle();
         philFlag = !!kycData;
       }
       setIsPhilanthropist(philFlag);
 
-      const { data: bal } = await supabase
-        .from('beneficiary_activations')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data: bal } = await supabase.from('beneficiary_activations').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
       setBalance(bal);
 
-      // Show Telegram popup once per user per browser session
       const popupKey = 'telegram_popup_shown_' + user.id;
       if (!localStorage.getItem(popupKey) && bal?.payment_status === 'verified') {
         setShowTelegramPopup(true);
       }
 
-      const { data: txns } = await supabase
-        .from('token_transactions')
-        .select('*')
-        .eq('beneficiary_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
+      const { data: txns } = await supabase.from('token_transactions').select('*').eq('beneficiary_id', user.id).order('created_at', { ascending: false }).limit(10);
       setTransactions(txns || []);
-
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -319,7 +307,7 @@ export default function BeneficiaryDashboardPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif', position: 'relative', overflowX: 'hidden' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif', position: 'relative', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
       {/* TELEGRAM POPUP */}
       {showTelegramPopup && (
@@ -330,22 +318,12 @@ export default function BeneficiaryDashboardPage() {
               <svg width="30" height="30" viewBox="0 0 24 24" fill="#0088cc"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/></svg>
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, color: 'white', marginBottom: 8 }}>Join Our Telegram Community!</h2>
-            <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.7, marginBottom: 24 }}>
-              Stay updated with the latest Charity Token news, distribution announcements, and connect with fellow beneficiaries in our official Telegram group.
-            </p>
-            <a
-              href="https://t.me/CharityTokenProject1"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={dismissTelegramPopup}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12, boxSizing: 'border-box', boxShadow: '0 8px 24px rgba(0,136,204,0.3)' }}
-            >
+            <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.7, marginBottom: 24 }}>Stay updated with the latest Charity Token news, distribution announcements, and connect with fellow beneficiaries in our official Telegram group.</p>
+            <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" onClick={dismissTelegramPopup} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12, boxSizing: 'border-box', boxShadow: '0 8px 24px rgba(0,136,204,0.3)' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/></svg>
               Join Telegram Group
             </a>
-            <button onClick={dismissTelegramPopup} style={{ background: 'none', border: 'none', color: '#8FA3BF', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
-              Maybe later
-            </button>
+            <button onClick={dismissTelegramPopup} style={{ background: 'none', border: 'none', color: '#8FA3BF', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>Maybe later</button>
           </div>
         </div>
       )}
@@ -377,7 +355,7 @@ export default function BeneficiaryDashboardPage() {
         </div>
       </header>
 
-      <main style={{ maxWidth: 720, margin: '0 auto', padding: '24px 20px 60px', position: 'relative', zIndex: 10 }}>
+      <main style={{ maxWidth: 720, margin: '0 auto', padding: '24px 20px 40px', position: 'relative', zIndex: 10, flex: 1, width: '100%' }}>
 
         <div style={{ marginBottom: 20 }}>
           <h1 style={{ fontSize: 'clamp(20px, 4vw, 28px)', fontWeight: 800, marginBottom: 4 }}>
@@ -431,9 +409,7 @@ export default function BeneficiaryDashboardPage() {
                 </div>
               ))}
             </div>
-
             <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
-
             {isPhilanthropist && <PhilanthropistDashboardCard />}
             {isAdmin && <AdminPanelCard />}
             {isActivated && !isPhilanthropist && <BecomePhilanthropistCard />}
@@ -463,7 +439,6 @@ export default function BeneficiaryDashboardPage() {
                 </div>
               </div>
             </div>
-
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, color: 'white', margin: 0 }}>Personal Information</p>
@@ -507,12 +482,10 @@ export default function BeneficiaryDashboardPage() {
                 </div>
               </div>
             </div>
-
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Your Membership ID Card</p>
               <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
             </div>
-
             {isPhilanthropist && <PhilanthropistDashboardCard />}
             {isAdmin && <AdminPanelCard />}
             {isActivated && !isPhilanthropist && <BecomePhilanthropistCard />}
@@ -557,6 +530,9 @@ export default function BeneficiaryDashboardPage() {
           </div>
         )}
       </main>
+
+      {/* LEGAL FOOTER */}
+      <LegalFooter />
     </div>
   );
 }
