@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Coins, Users, Shield, ArrowRight, Globe, FileText, XCircle } from 'lucide-react';
 import Image from 'next/image';
+import Link from 'next/link';
 
 const MAX_BENEFICIARIES = 1000000;
 
@@ -79,34 +80,28 @@ export default function HomePage() {
 
           {/* HERO */}
           <section style={{ textAlign: 'center', paddingTop: 40, paddingBottom: 32 }}>
-
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
               <div style={{ position: 'relative' }}>
                 <div style={{ position: 'absolute', inset: -20, background: 'rgba(0,206,201,0.15)', filter: 'blur(24px)', borderRadius: '50%' }} />
                 <Image src="/Charity token logo.jpg" alt="Charity Token Logo" width={110} height={110} style={{ borderRadius: 20, boxShadow: '0 20px 40px rgba(0,0,0,0.4)', position: 'relative', zIndex: 1 }} />
               </div>
             </div>
-
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 999, border: '1px solid rgba(0,206,201,0.3)', backgroundColor: 'rgba(0,206,201,0.1)', color: '#67e8f9', fontSize: 12, fontWeight: 500 }}>
                 <Globe style={{ width: 12, height: 12 }} />
                 Empowering 1 Million People Worldwide
               </div>
             </div>
-
             <h1 style={{ fontSize: 'clamp(28px, 5vw, 44px)', fontWeight: 800, lineHeight: 1.2, marginBottom: 16, letterSpacing: '-0.5px' }}>
               Empowering Lives{' '}
               <span style={{ background: 'linear-gradient(to right, #00CEC9, #00B894)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
                 Through Impact
               </span>
             </h1>
-
             <p style={{ color: '#8FA3BF', fontSize: 15, lineHeight: 1.7, marginBottom: 28 }}>
               Receive 500 Charity Tokens monthly for 10 years.<br />
               Own a piece of the future and join a global humanitarian movement.
             </p>
-
-            {/* CTA Buttons — hidden if full */}
             {!stats.isFull ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
                 <button onClick={() => router.push('/register?role=beneficiary')} style={{ width: '100%', maxWidth: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px 32px', borderRadius: 14, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,206,201,0.3)' }}>
@@ -126,11 +121,7 @@ export default function HomePage() {
           {/* REAL STATS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
             {[
-              {
-                value: stats.loaded ? formatNumber(stats.activeBeneficiaries) : '...',
-                label: 'Beneficiaries',
-                sub: `${stats.loaded ? formatNumber(stats.remainingSlots) : '...'} slots left`,
-              },
+              { value: stats.loaded ? formatNumber(stats.activeBeneficiaries) : '...', label: 'Beneficiaries', sub: `${stats.loaded ? formatNumber(stats.remainingSlots) : '...'} slots left` },
               { value: '500', label: 'Tokens/Month', sub: 'Per beneficiary' },
               { value: '10', label: 'Years', sub: 'Starting 2027' },
             ].map((s) => (
@@ -147,9 +138,7 @@ export default function HomePage() {
             <div style={{ marginBottom: 24, padding: '16px 20px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, color: '#8FA3BF', fontWeight: 600 }}>Beneficiary Slots Filled</span>
-                <span style={{ fontSize: 12, color: '#67e8f9', fontWeight: 700 }}>
-                  {((stats.activeBeneficiaries / MAX_BENEFICIARIES) * 100).toFixed(2)}%
-                </span>
+                <span style={{ fontSize: 12, color: '#67e8f9', fontWeight: 700 }}>{((stats.activeBeneficiaries / MAX_BENEFICIARIES) * 100).toFixed(2)}%</span>
               </div>
               <div style={{ width: '100%', height: 8, backgroundColor: 'rgba(0,206,201,0.1)', borderRadius: 999 }}>
                 <div style={{ height: '100%', borderRadius: 999, background: 'linear-gradient(to right, #00CEC9, #00B894)', width: `${Math.min((stats.activeBeneficiaries / MAX_BENEFICIARIES) * 100, 100)}%`, transition: 'width 1s ease' }} />
@@ -193,7 +182,7 @@ export default function HomePage() {
             <ArrowRight style={{ width: 18, height: 18, color: '#00CEC9', flexShrink: 0 }} />
           </a>
 
-          {/* BOTTOM CTA — only Become a Beneficiary, hidden if full */}
+          {/* BOTTOM CTA */}
           {!stats.isFull && (
             <button onClick={() => router.push('/register?role=beneficiary')} style={{ width: '100%', padding: '16px', borderRadius: 14, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,206,201,0.25)' }}>
               Become a Beneficiary
@@ -204,8 +193,16 @@ export default function HomePage() {
       </main>
 
       {/* FOOTER */}
-      <footer style={{ position: 'relative', zIndex: 10, borderTop: '1px solid rgba(255,255,255,0.05)', padding: '20px', textAlign: 'center' }}>
-        <p style={{ fontSize: 12, color: '#4A5568' }}>© 2026 Charity Token Project. All rights reserved.</p>
+      <footer style={{ position: 'relative', zIndex: 10, borderTop: '1px solid rgba(255,255,255,0.06)', padding: '18px 20px', textAlign: 'center' }}>
+        <p style={{ fontSize: 12, color: '#4A5568', marginBottom: 10 }}>© 2026 Charity Token Project. All rights reserved.</p>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Link href="/terms" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+            Terms of Service
+          </Link>
+          <Link href="/privacy" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+            Privacy Policy
+          </Link>
+        </div>
       </footer>
 
     </div>
