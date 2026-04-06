@@ -3,11 +3,28 @@ import { createUser, getUserByEmail, getUserByUsername, updateUser } from '@/lib
 import { hashPassword, verifyPassword, generateToken, generateUsernameFromEmail } from '@/lib/auth';
 import type { ApiResponse } from '@/lib/types';
 
+const MAX_BENEFICIARIES = 1_000_000;
+
+// ── Check if beneficiary cap has been reached ─────────────────────────────────
+async function isBeneficiaryCapReached(): Promise<boolean> {
+  try {
+    const { supabase } = await import('@/lib/db');
+    const { count } = await supabase
+      .from('beneficiary_activations')
+      .select('*', { count: 'exact', head: true })
+      .eq('payment_status', 'verified');
+    return (count ?? 0) >= MAX_BENEFICIARIES;
+  } catch {
+    // If check fails, don't block — fail open
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { action, email: rawEmail, password, username, role = 'beneficiary' } = await request.json();
 
-    // Normalize email — always lowercase and trimmed
+    // Normalize email
     const email = rawEmail?.toLowerCase().trim();
 
     if (action === 'register') {
@@ -18,7 +35,19 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Check if user exists (case-insensitive)
+      // ── CAP CHECK — block registration when 1M activated ──────────────────
+      const capReached = await isBeneficiaryCapReached();
+      if (capReached) {
+        return NextResponse.json<ApiResponse<null>>(
+          {
+            success: false,
+            error: 'Registration is now closed. All 1,000,000 beneficiary slots have been filled. Thank you for your interest in the Charity Token Project.',
+          },
+          { status: 403 }
+        );
+      }
+
+      // Check if user exists
       const existingUser = await getUserByEmail(email);
       if (existingUser) {
         return NextResponse.json<ApiResponse<null>>(
@@ -27,7 +56,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Generate username if not provided
+      // Generate username
       let finalUsername = username?.toLowerCase().trim();
       if (!finalUsername) {
         finalUsername = generateUsernameFromEmail(email);
@@ -49,9 +78,8 @@ export async function POST(request: NextRequest) {
       }
 
       const passwordHash = hashPassword(password);
-
       const newUser = await createUser({
-        email, // already lowercased
+        email,
         username: finalUsername,
         password_hash: passwordHash,
         role,
@@ -65,7 +93,6 @@ export async function POST(request: NextRequest) {
       }
 
       const token = generateToken(newUser.id);
-
       return NextResponse.json<ApiResponse<{ user: typeof newUser; token: string }>>(
         { success: true, data: { user: newUser, token } },
         { status: 201 }
@@ -79,7 +106,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Fetch user by lowercased email
       const user = await getUserByEmail(email);
       if (!user) {
         return NextResponse.json<ApiResponse<null>>(
@@ -95,12 +121,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      await updateUser(user.id, {
-        last_login: new Date().toISOString(),
-      } as any);
-
+      await updateUser(user.id, { last_login: new Date().toISOString() } as any);
       const token = generateToken(user.id);
-
       return NextResponse.json<ApiResponse<{ user: typeof user; token: string }>>(
         { success: true, data: { user, token } },
         { status: 200 }
@@ -113,7 +135,7 @@ export async function POST(request: NextRequest) {
     );
 
   } catch (error) {
-    console.error('[v0] Auth error:', error);
+    console.error('[auth] Error:', error);
     return NextResponse.json<ApiResponse<null>>(
       { success: false, error: 'Internal server error' },
       { status: 500 }
