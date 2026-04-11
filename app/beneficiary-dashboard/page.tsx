@@ -129,20 +129,9 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {error && <p style={{ fontSize: 12, color: '#ff6b6b', textAlign: 'center' }}>{error}</p>}
 
-      {/*
-        Card is 480×302px (credit card ratio 1.586).
-        Layout: 3 rows packed tightly with no space-between gaps.
-        Row 1 (header): logo + title | member ID       ~40px
-        Row 2 (body):   large photo | name/email/info  ~160px
-        Row 3 (footer): since | status | monthly       ~44px
-        Top accent bar: 6px
-        Bottom accent:  4px
-        Padding: 12px sides, 10px top, 8px bottom
-        Total inner: 302 - 10 = 292px content height
-      */}
       <div
         ref={cardRef}
         style={{
@@ -154,84 +143,106 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
           overflow: 'hidden',
           position: 'relative',
           fontFamily: 'Arial, Helvetica, sans-serif',
-          background: 'linear-gradient(135deg, #f0fdfc 0%, #ffffff 50%, #f0fdfc 100%)',
-          border: '2px solid #00CEC9',
-          boxShadow: '0 4px 20px rgba(0,206,201,0.15)',
+          background: 'linear-gradient(135deg, #e8faf8 0%, #ffffff 40%, #e8faf8 100%)',
+          border: '2.5px solid #00CEC9',
+          boxShadow: '0 6px 24px rgba(0,206,201,0.18)',
         }}
       >
-        {/* Decorative circle */}
-        <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(0,206,201,0.07)', pointerEvents: 'none' }} />
+        {/* Decorative bg circle */}
+        <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(0,206,201,0.07)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', bottom: -30, left: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(0,184,148,0.05)', pointerEvents: 'none' }} />
 
         {/* Top accent bar */}
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: 'linear-gradient(to right, #00CEC9, #00B894)' }} />
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 7, background: 'linear-gradient(to right, #00CEC9, #00B894, #00CEC9)', zIndex: 2 }} />
 
-        {/* ── ROW 1: HEADER ── */}
-        <div style={{ position: 'absolute', top: 14, left: 14, right: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* ── ROW 1: HEADER — logo left, member ID right ── */}
+        <div style={{ position: 'absolute', top: 17, left: 16, right: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1 }}>
+          {/* Logo + title */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <img
               src="/Charity token logo.jpg"
               alt="CT"
-              style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }}
+              style={{ width: 38, height: 38, borderRadius: 9, objectFit: 'cover', flexShrink: 0, border: '1.5px solid rgba(0,206,201,0.4)' }}
               crossOrigin="anonymous"
             />
             <div>
-              <p style={{ fontSize: 12, fontWeight: 900, color: '#007B8A', margin: 0, letterSpacing: 1, lineHeight: 1.2 }}>CHARITY TOKEN</p>
-              <p style={{ fontSize: 9, color: '#6B7280', margin: 0, fontWeight: 600, letterSpacing: 0.5 }}>MEMBERSHIP CARD</p>
+              <p style={{ fontSize: 13, fontWeight: 900, color: '#007B8A', margin: 0, letterSpacing: 1.2, lineHeight: 1.2, textDecoration: 'none' }}>CHARITY TOKEN</p>
+              <p style={{ fontSize: 8.5, color: '#5eadb5', margin: 0, fontWeight: 700, letterSpacing: 0.8, textDecoration: 'none' }}>MEMBERSHIP CARD</p>
             </div>
           </div>
+          {/* Member ID */}
           <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 1px', fontWeight: 600 }}>MEMBER ID</p>
-            <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#007B8A', fontWeight: 800, margin: 0 }}>{memberId}</p>
+            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.6, textDecoration: 'none' }}>MEMBER ID</p>
+            <p style={{ fontSize: 11.5, fontFamily: 'monospace', color: '#007B8A', fontWeight: 900, margin: 0, letterSpacing: 0.5, textDecoration: 'none' }}>{memberId}</p>
           </div>
         </div>
 
-        {/* ── ROW 2: PHOTO + INFO ── */}
-        <div style={{ position: 'absolute', top: 66, left: 14, right: 14, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+        {/* Thin divider under header */}
+        <div style={{ position: 'absolute', top: 68, left: 16, right: 16, height: 1, background: 'linear-gradient(to right, rgba(0,206,201,0.3), rgba(0,184,148,0.3))', zIndex: 1 }} />
+
+        {/* ── ROW 2: PHOTO + DETAILS ── */}
+        <div style={{ position: 'absolute', top: 78, left: 16, right: 16, display: 'flex', gap: 16, alignItems: 'flex-start', zIndex: 1 }}>
+          {/* Profile photo */}
           <img
             src={profileImage}
             alt={fullName}
-            style={{ width: 96, height: 96, borderRadius: 12, objectFit: 'cover', border: '2.5px solid #00CEC9', flexShrink: 0 }}
+            style={{ width: 100, height: 100, borderRadius: 12, objectFit: 'cover', border: '2.5px solid #00CEC9', flexShrink: 0, display: 'block' }}
             crossOrigin="anonymous"
           />
+          {/* Info */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' }}>Full Name</p>
-            <p style={{ fontSize: 16, fontWeight: 900, color: '#111827', margin: '0 0 8px', lineHeight: 1.15, wordBreak: 'break-word' }}>{fullName || 'Beneficiary'}</p>
-            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' }}>Email</p>
-            <p style={{ fontSize: 10, fontWeight: 700, color: '#0369a1', margin: '0 0 6px', textDecoration: 'none', wordBreak: 'break-all', lineHeight: 1.3 }}>{email}</p>
+            {/* Full name */}
+            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', textDecoration: 'none' }}>Full Name</p>
+            <p style={{ fontSize: 17, fontWeight: 900, color: '#111827', margin: '0 0 7px', lineHeight: 1.15, wordBreak: 'break-word', textDecoration: 'none' }}>{fullName || 'Beneficiary'}</p>
+            {/* Email — wrapped in span to kill all inherited link styles */}
+            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', textDecoration: 'none' }}>Email</p>
+            <p style={{ fontSize: 10, fontWeight: 700, color: '#0369a1', margin: '0 0 6px', lineHeight: 1.3, wordBreak: 'break-all', textDecoration: 'none !important' as any }}>
+              <span style={{ textDecoration: 'none', borderBottom: 'none', WebkitTextDecoration: 'none' } as any}>{email}</span>
+            </p>
+            {/* Country */}
             {country && (
-              <p style={{ fontSize: 10, fontWeight: 600, color: '#6B7280', margin: 0 }}>📍 {country}</p>
+              <p style={{ fontSize: 10, fontWeight: 600, color: '#5eadb5', margin: 0, textDecoration: 'none' }}>📍 {country}</p>
             )}
           </div>
         </div>
 
-        {/* ── ROW 3: FOOTER ── */}
-        <div style={{ position: 'absolute', bottom: 12, left: 14, right: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #A7F3D0', paddingTop: 8 }}>
+        {/* ── ROW 3: FOOTER BAR ── */}
+        <div style={{
+          position: 'absolute', bottom: 12, left: 16, right: 16, zIndex: 1,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          borderTop: '1.5px solid #A7F3D0', paddingTop: 8,
+        }}>
+          {/* Member since */}
           <div>
-            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.5 }}>MEMBER SINCE</p>
-            <p style={{ fontSize: 12, fontWeight: 800, color: '#111827', margin: 0 }}>
+            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.6, textDecoration: 'none' }}>MEMBER SINCE</p>
+            <p style={{ fontSize: 13, fontWeight: 900, color: '#111827', margin: 0, textDecoration: 'none' }}>
               {new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
             </p>
           </div>
+          {/* Status badge */}
           <div style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 3px', fontWeight: 700, letterSpacing: 0.5 }}>STATUS</p>
-            <span style={{
-              fontSize: 10, padding: '3px 10px', borderRadius: 999, fontWeight: 800,
+            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 3px', fontWeight: 700, letterSpacing: 0.6, textDecoration: 'none' }}>STATUS</p>
+            <div style={{
+              display: 'inline-block',
+              fontSize: 10, padding: '3px 12px', borderRadius: 999, fontWeight: 900,
               backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7',
               color: isActivated ? '#065F46' : '#92400E',
               border: `1.5px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}`,
-              display: 'inline-block', lineHeight: 1.5,
+              lineHeight: 1.6, letterSpacing: 0.5,
+              textDecoration: 'none',
             }}>
               {isActivated ? 'ACTIVE' : 'PENDING'}
-            </span>
+            </div>
           </div>
+          {/* Monthly tokens */}
           <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.5 }}>MONTHLY</p>
-            <p style={{ fontSize: 16, fontWeight: 900, color: '#065F46', margin: 0, lineHeight: 1.1 }}>500 CT</p>
+            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.6, textDecoration: 'none' }}>MONTHLY</p>
+            <p style={{ fontSize: 18, fontWeight: 900, color: '#065F46', margin: 0, lineHeight: 1, textDecoration: 'none' }}>500 CT</p>
           </div>
         </div>
 
         {/* Bottom accent bar */}
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(to right, #00B894, #00CEC9)' }} />
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 5, background: 'linear-gradient(to right, #00B894, #00CEC9, #00B894)', zIndex: 2 }} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'center' }}>
