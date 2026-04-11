@@ -11,11 +11,53 @@ import {
 import Image from 'next/image';
 import Link from 'next/link';
 
+// ─── TELEGRAM POPUP LOGIC ─────────────────────────────────────────────────────
+// Shows on first 5 logins, then pauses for 30 days, then repeats forever.
+function shouldShowTelegramPopup(userId: string): boolean {
+  const key = `tg_popup_${userId}`;
+  const raw = localStorage.getItem(key);
+  const now = Date.now();
+  const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+  const MAX_SHOWS_PER_CYCLE = 5;
+
+  if (!raw) {
+    // First ever visit — initialise
+    localStorage.setItem(key, JSON.stringify({ count: 0, cycleStart: now }));
+    return true;
+  }
+
+  let data: { count: number; cycleStart: number };
+  try { data = JSON.parse(raw); }
+  catch { data = { count: 0, cycleStart: now }; }
+
+  const elapsed = now - data.cycleStart;
+
+  // 30 days passed → reset cycle
+  if (elapsed >= THIRTY_DAYS) {
+    localStorage.setItem(key, JSON.stringify({ count: 0, cycleStart: now }));
+    return true;
+  }
+
+  // Still within cycle — show if under 5
+  return data.count < MAX_SHOWS_PER_CYCLE;
+}
+
+function recordTelegramPopupShown(userId: string) {
+  const key = `tg_popup_${userId}`;
+  const raw = localStorage.getItem(key);
+  const now = Date.now();
+  let data: { count: number; cycleStart: number };
+  try { data = raw ? JSON.parse(raw) : { count: 0, cycleStart: now }; }
+  catch { data = { count: 0, cycleStart: now }; }
+  data.count += 1;
+  localStorage.setItem(key, JSON.stringify(data));
+}
+
 // ─── MEMBERSHIP CARD ─────────────────────────────────────────────────────────
-function MembershipCard({ userId, fullName, email, profileImage, joinDate, country, phone, isActivated }: {
+function MembershipCard({ userId, fullName, email, profileImage, joinDate, country, isActivated }: {
   userId: string; fullName: string; email: string;
   profileImage?: string; joinDate: string;
-  country?: string; phone?: string; isActivated?: boolean;
+  country?: string; isActivated?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -27,7 +69,7 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
     setLoading(true);
     try {
       const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(cardRef.current, { backgroundColor: '#0a1628', scale: 3, logging: false, useCORS: true, allowTaint: true });
+      const canvas = await html2canvas(cardRef.current, { backgroundColor: '#ffffff', scale: 3, logging: false, useCORS: true, allowTaint: true });
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
       link.download = 'charity-membership-' + userId + '.png';
@@ -107,18 +149,15 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
   );
 }
 
-// ─── TERMS & PRIVACY FOOTER BAR ───────────────────────────────────────────────
+// ─── LEGAL FOOTER ─────────────────────────────────────────────────────────────
 function LegalFooter() {
   return (
     <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '18px 20px', textAlign: 'center', marginTop: 'auto' }}>
       <p style={{ fontSize: 12, color: '#4A5568', marginBottom: 10 }}>© 2026 Charity Token Project. All rights reserved.</p>
       <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
-        <Link href="/terms" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
-          Terms of Service
-        </Link>
-        <Link href="/privacy" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
-          Privacy Policy
-        </Link>
+        <Link href="/terms" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>Terms of Service</Link>
+        <Link href="/privacy" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>Privacy Policy</Link>
+        <Link href="/faq" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>FAQs</Link>
       </div>
     </div>
   );
@@ -175,18 +214,34 @@ export default function BeneficiaryDashboardPage() {
       }
       setIsPhilanthropist(philFlag);
 
-      const { data: bal } = await supabase.from('beneficiary_activations').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      const { data: bal } = await supabase
+        .from('beneficiary_activations')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       setBalance(bal);
 
-      const popupKey = 'telegram_popup_shown_' + user.id;
-      if (!localStorage.getItem(popupKey) && bal?.payment_status === 'verified') {
+      // ── TELEGRAM POPUP: show for first 5 logins, pause 30 days, repeat ──
+      if (bal?.payment_status === 'verified' && shouldShowTelegramPopup(user.id)) {
         setShowTelegramPopup(true);
       }
 
-      const { data: txns } = await supabase.from('token_transactions').select('*').eq('beneficiary_id', user.id).order('created_at', { ascending: false }).limit(10);
+      const { data: txns } = await supabase
+        .from('token_transactions')
+        .select('*')
+        .eq('beneficiary_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
       setTransactions(txns || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
+  };
+
+  const dismissTelegramPopup = () => {
+    setShowTelegramPopup(false);
+    if (user?.id) recordTelegramPopupShown(user.id);
   };
 
   const handleProfilePicChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -301,29 +356,34 @@ export default function BeneficiaryDashboardPage() {
     </div>
   );
 
-  const dismissTelegramPopup = () => {
-    setShowTelegramPopup(false);
-    localStorage.setItem('telegram_popup_shown_' + user?.id, '1');
-  };
-
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif', position: 'relative', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
-      {/* TELEGRAM POPUP */}
+      {/* ── TELEGRAM POPUP ─────────────────────────────────────────────────── */}
       {showTelegramPopup && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 200, backdropFilter: 'blur(6px)' }}>
           <div style={{ width: '100%', maxWidth: 420, backgroundColor: '#0F1F35', border: '1px solid rgba(0,136,204,0.3)', borderRadius: 22, padding: 32, boxShadow: '0 40px 80px rgba(0,0,0,0.6)', textAlign: 'center', position: 'relative' }}>
-            <button onClick={dismissTelegramPopup} style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.06)', border: 'none', color: '#8FA3BF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, lineHeight: 1 }}>✕</button>
+            <button onClick={dismissTelegramPopup} style={{ position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.06)', border: 'none', color: '#8FA3BF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>✕</button>
             <div style={{ width: 64, height: 64, borderRadius: '50%', backgroundColor: 'rgba(0,136,204,0.15)', border: '2px solid rgba(0,136,204,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
               <svg width="30" height="30" viewBox="0 0 24 24" fill="#0088cc"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/></svg>
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, color: 'white', marginBottom: 8 }}>Join Our Telegram Community!</h2>
-            <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.7, marginBottom: 24 }}>Stay updated with the latest Charity Token news, distribution announcements, and connect with fellow beneficiaries in our official Telegram group.</p>
-            <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" onClick={dismissTelegramPopup} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12, boxSizing: 'border-box', boxShadow: '0 8px 24px rgba(0,136,204,0.3)' }}>
+            <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.7, marginBottom: 24 }}>
+              Stay updated with the latest Charity Token news, distribution announcements, and connect with fellow beneficiaries in our official Telegram group.
+            </p>
+            <a
+              href="https://t.me/CharityTokenProject1"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={dismissTelegramPopup}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12, boxSizing: 'border-box', boxShadow: '0 8px 24px rgba(0,136,204,0.3)' }}
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/></svg>
               Join Telegram Group
             </a>
-            <button onClick={dismissTelegramPopup} style={{ background: 'none', border: 'none', color: '#8FA3BF', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>Maybe later</button>
+            <button onClick={dismissTelegramPopup} style={{ background: 'none', border: 'none', color: '#8FA3BF', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
+              Maybe later
+            </button>
           </div>
         </div>
       )}
@@ -409,7 +469,7 @@ export default function BeneficiaryDashboardPage() {
                 </div>
               ))}
             </div>
-            <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
+            <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} isActivated={isActivated} />
             {isPhilanthropist && <PhilanthropistDashboardCard />}
             {isAdmin && <AdminPanelCard />}
             {isActivated && !isPhilanthropist && <BecomePhilanthropistCard />}
@@ -484,7 +544,7 @@ export default function BeneficiaryDashboardPage() {
             </div>
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Your Membership ID Card</p>
-              <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} phone={phone} isActivated={isActivated} />
+              <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} isActivated={isActivated} />
             </div>
             {isPhilanthropist && <PhilanthropistDashboardCard />}
             {isAdmin && <AdminPanelCard />}
@@ -531,7 +591,6 @@ export default function BeneficiaryDashboardPage() {
         )}
       </main>
 
-      {/* LEGAL FOOTER */}
       <LegalFooter />
     </div>
   );
