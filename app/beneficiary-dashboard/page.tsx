@@ -116,22 +116,22 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
               <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px', letterSpacing: 0.5 }}>FULL NAME</p>
               <p style={{ fontSize: 15, fontWeight: 800, color: '#111827', margin: '0 0 6px', lineHeight: 1.2 }}>{fullName || 'Beneficiary'}</p>
               <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px', letterSpacing: 0.5 }}>EMAIL</p>
-              <p style={{ fontSize: 10, color: '#0369a1', margin: '0 0 4px' }}>{email}</p>
+              <p style={{ fontSize: 10, color: '#0369a1', margin: '0 0 4px', textDecoration: 'none', fontStyle: 'normal' }}>{email}</p>
               {country && <p style={{ fontSize: 10, color: '#6B7280', margin: 0 }}>📍 {country}</p>}
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #D1FAE5', paddingTop: 10 }}>
-            <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #D1FAE5', paddingTop: 10, gap: 4 }}>
+            <div style={{ flexShrink: 0 }}>
               <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>MEMBER SINCE</p>
               <p style={{ fontSize: 11, fontWeight: 700, color: '#111827', margin: 0 }}>{new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</p>
             </div>
-            <div style={{ textAlign: 'center' }}>
+            <div style={{ textAlign: 'center', flexShrink: 0 }}>
               <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>STATUS</p>
-              <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 999, backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7', color: isActivated ? '#065F46' : '#92400E', fontWeight: 700, border: `1px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}` }}>
+              <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 999, backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7', color: isActivated ? '#065F46' : '#92400E', fontWeight: 700, border: `1px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}`, display: 'inline-block', whiteSpace: 'nowrap', lineHeight: 1.6 }}>
                 {isActivated ? 'ACTIVE' : 'PENDING'}
               </span>
             </div>
-            <div style={{ textAlign: 'right' }}>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
               <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>MONTHLY</p>
               <p style={{ fontSize: 14, fontWeight: 800, color: '#065F46', margin: 0 }}>500 CT</p>
             </div>

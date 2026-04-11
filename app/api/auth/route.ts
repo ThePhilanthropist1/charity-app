@@ -5,66 +5,129 @@ import type { ApiResponse } from '@/lib/types';
 
 const MAX_BENEFICIARIES = 1_000_000;
 
-// ── Check if beneficiary cap has been reached ─────────────────────────────────
+// ── INPUT LIMITS ──────────────────────────────────────────────────────────────
+const MAX_EMAIL_LENGTH = 254;      // RFC 5321 max email length
+const MAX_PASSWORD_LENGTH = 128;   // Prevent PBKDF2 DoS attacks
+const MAX_USERNAME_LENGTH = 32;
+const MAX_BODY_SIZE = 10_000;      // 10KB max body — blocks oversized payloads
+
+// ── BENEFICIARY CAP CHECK ─────────────────────────────────────────────────────
 async function isBeneficiaryCapReached(): Promise<boolean> {
   try {
-    const { supabase } = await import('@/lib/db');
-    const { count } = await supabase
+    const { supabaseAdmin } = await import('@/lib/db');
+    const { count } = await supabaseAdmin
       .from('beneficiary_activations')
       .select('*', { count: 'exact', head: true })
       .eq('payment_status', 'verified');
     return (count ?? 0) >= MAX_BENEFICIARIES;
   } catch {
-    // If check fails, don't block — fail open
     return false;
   }
 }
 
+// ── INPUT SANITISATION ────────────────────────────────────────────────────────
+function sanitiseEmail(raw: string): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.toLowerCase().trim();
+  if (trimmed.length > MAX_EMAIL_LENGTH) return null;
+  // Basic email format check
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function sanitisePassword(raw: string): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  if (raw.length < 8) return null;
+  // Block absurdly long passwords to prevent PBKDF2 DoS
+  if (raw.length > MAX_PASSWORD_LENGTH) return null;
+  return raw;
+}
+
+function sanitiseUsername(raw: string): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.toLowerCase().trim();
+  if (trimmed.length > MAX_USERNAME_LENGTH) return null;
+  // Only allow alphanumeric and underscores
+  if (!/^[a-z0-9_]+$/.test(trimmed)) return null;
+  return trimmed;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { action, email: rawEmail, password, username, role = 'beneficiary' } = await request.json();
+    // ── BODY SIZE CHECK ──────────────────────────────────────────────────────
+    const contentLength = request.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'Request too large' },
+        { status: 413 }
+      );
+    }
 
-    // Normalize email
-    const email = rawEmail?.toLowerCase().trim();
-
-    if (action === 'register') {
-      if (!email || !password || password.length < 8) {
+    let body: any;
+    try {
+      const text = await request.text();
+      if (text.length > MAX_BODY_SIZE) {
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Invalid email or password (min 8 characters)' },
+          { success: false, error: 'Request too large' },
+          { status: 413 }
+        );
+      }
+      body = JSON.parse(text);
+    } catch {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'Invalid request body' },
+        { status: 400 }
+      );
+    }
+
+    const { action, email: rawEmail, password: rawPassword, username: rawUsername, role = 'beneficiary' } = body;
+
+    // ── REGISTER ─────────────────────────────────────────────────────────────
+    if (action === 'register') {
+
+      const email = sanitiseEmail(rawEmail);
+      if (!email) {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'Invalid email address' },
           { status: 400 }
         );
       }
 
-      // ── CAP CHECK — block registration when 1M activated ──────────────────
+      const password = sanitisePassword(rawPassword);
+      if (!password) {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'Password must be between 8 and 128 characters' },
+          { status: 400 }
+        );
+      }
+
+      // ── CAP CHECK ──────────────────────────────────────────────────────────
       const capReached = await isBeneficiaryCapReached();
       if (capReached) {
         return NextResponse.json<ApiResponse<null>>(
-          {
-            success: false,
-            error: 'Registration is now closed. All 1,000,000 beneficiary slots have been filled. Thank you for your interest in the Charity Token Project.',
-          },
+          { success: false, error: 'Registration is now closed. All 1,000,000 beneficiary slots have been filled.' },
           { status: 403 }
         );
       }
 
-      // Check if user exists
+      // ── DUPLICATE CHECK ────────────────────────────────────────────────────
       const existingUser = await getUserByEmail(email);
       if (existingUser) {
+        // Generic message — don't reveal whether email exists
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Email already registered' },
+          { success: false, error: 'Unable to create account with this email address' },
           { status: 409 }
         );
       }
 
-      // Generate username
-      let finalUsername = username?.toLowerCase().trim();
+      // ── USERNAME ───────────────────────────────────────────────────────────
+      let finalUsername: string | null = rawUsername ? sanitiseUsername(rawUsername) : null;
       if (!finalUsername) {
+        // Auto-generate if not provided or invalid
         finalUsername = generateUsernameFromEmail(email);
         let counter = 0;
-        let checkUsername = await getUserByUsername(finalUsername);
-        while (checkUsername && counter < 10) {
+        while (await getUserByUsername(finalUsername) && counter < 10) {
           finalUsername = generateUsernameFromEmail(email);
-          checkUsername = await getUserByUsername(finalUsername);
           counter++;
         }
       } else {
@@ -87,7 +150,7 @@ export async function POST(request: NextRequest) {
 
       if (!newUser) {
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Failed to create user' },
+          { success: false, error: 'Failed to create account. Please try again.' },
           { status: 500 }
         );
       }
@@ -97,17 +160,30 @@ export async function POST(request: NextRequest) {
         { success: true, data: { user: newUser, token } },
         { status: 201 }
       );
+    }
 
-    } else if (action === 'login') {
-      if (!email || !password) {
+    // ── LOGIN ─────────────────────────────────────────────────────────────────
+    if (action === 'login') {
+
+      const email = sanitiseEmail(rawEmail);
+      if (!email) {
         return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Email and password required' },
+          { success: false, error: 'Invalid email or password' },
+          { status: 400 }
+        );
+      }
+
+      const password = sanitisePassword(rawPassword);
+      if (!password) {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'Invalid email or password' },
           { status: 400 }
         );
       }
 
       const user = await getUserByEmail(email);
       if (!user) {
+        // Generic message — don't reveal whether email exists
         return NextResponse.json<ApiResponse<null>>(
           { success: false, error: 'Invalid email or password' },
           { status: 401 }
@@ -123,6 +199,7 @@ export async function POST(request: NextRequest) {
 
       await updateUser(user.id, { last_login: new Date().toISOString() } as any);
       const token = generateToken(user.id);
+
       return NextResponse.json<ApiResponse<{ user: typeof user; token: string }>>(
         { success: true, data: { user, token } },
         { status: 200 }
@@ -135,7 +212,7 @@ export async function POST(request: NextRequest) {
     );
 
   } catch (error) {
-    console.error('[auth] Error:', error);
+    console.error('[auth] Unhandled error:', typeof error === 'object' ? 'Internal error' : error);
     return NextResponse.json<ApiResponse<null>>(
       { success: false, error: 'Internal server error' },
       { status: 500 }
