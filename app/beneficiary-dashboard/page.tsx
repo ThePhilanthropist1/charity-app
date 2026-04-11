@@ -69,7 +69,25 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
     setLoading(true);
     try {
       const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(cardRef.current, { backgroundColor: '#ffffff', scale: 3, logging: false, useCORS: true, allowTaint: true });
+
+      // Wait for fonts and images to fully load before capture
+      await document.fonts.ready;
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 3,
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
+        // Use explicit pixel dimensions to avoid aspect-ratio calculation bugs
+        width: cardRef.current.offsetWidth,
+        height: cardRef.current.offsetHeight,
+        windowWidth: cardRef.current.offsetWidth,
+        windowHeight: cardRef.current.offsetHeight,
+        // Force html2canvas to ignore transforms
+        ignoreElements: (el) => el.classList.contains('no-capture'),
+      });
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
       link.download = 'charity-membership-' + userId + '.png';
@@ -93,10 +111,10 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {error && <p style={{ fontSize: 12, color: '#ff6b6b', textAlign: 'center' }}>{error}</p>}
-      <div ref={cardRef} style={{ width: '100%', maxWidth: 480, aspectRatio: '1.586', margin: '0 auto', borderRadius: 16, overflow: 'hidden', position: 'relative', fontFamily: 'Arial, sans-serif', background: 'linear-gradient(135deg, #f0fdfc 0%, #ffffff 50%, #f0fdfc 100%)', border: '2px solid #00CEC9', boxShadow: '0 4px 20px rgba(0,206,201,0.15)' }}>
+      <div ref={cardRef} style={{ width: '100%', maxWidth: 480, height: 'auto', minHeight: 180, margin: '0 auto', borderRadius: 16, overflow: 'hidden', position: 'relative', fontFamily: 'Arial, sans-serif', background: 'linear-gradient(135deg, #f0fdfc 0%, #ffffff 50%, #f0fdfc 100%)', border: '2px solid #00CEC9', boxShadow: '0 4px 20px rgba(0,206,201,0.15)' }}>
         <div style={{ position: 'absolute', top: -40, right: -40, width: 180, height: 180, borderRadius: '50%', background: 'rgba(0,206,201,0.08)' }} />
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: 'linear-gradient(to right, #00CEC9, #00B894)' }} />
-        <div style={{ padding: '16px 20px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <img src="/Charity token logo.jpg" alt="Charity Token" style={{ width: 32, height: 32, borderRadius: 8, objectFit: 'cover' }} crossOrigin="anonymous" />
