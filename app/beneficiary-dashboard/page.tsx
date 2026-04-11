@@ -1,18 +1,18 @@
 ﻿'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase-client';
 import {
   CheckCircle, Coins, LogOut, Edit2, Save, X,
-  Camera, ChevronRight, Award, Download, AlertCircle, Shield, Users
+  Camera, ChevronRight, Award, AlertCircle, Shield, Users
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { MembershipCard } from '@/components/membership-card';
 
 // ─── TELEGRAM POPUP LOGIC ─────────────────────────────────────────────────────
-// Shows on first 5 logins, then pauses for 30 days, then repeats forever.
 function shouldShowTelegramPopup(userId: string): boolean {
   const key = `tg_popup_${userId}`;
   const raw = localStorage.getItem(key);
@@ -21,7 +21,6 @@ function shouldShowTelegramPopup(userId: string): boolean {
   const MAX_SHOWS_PER_CYCLE = 5;
 
   if (!raw) {
-    // First ever visit — initialise
     localStorage.setItem(key, JSON.stringify({ count: 0, cycleStart: now }));
     return true;
   }
@@ -31,14 +30,10 @@ function shouldShowTelegramPopup(userId: string): boolean {
   catch { data = { count: 0, cycleStart: now }; }
 
   const elapsed = now - data.cycleStart;
-
-  // 30 days passed → reset cycle
   if (elapsed >= THIRTY_DAYS) {
     localStorage.setItem(key, JSON.stringify({ count: 0, cycleStart: now }));
     return true;
   }
-
-  // Still within cycle — show if under 5
   return data.count < MAX_SHOWS_PER_CYCLE;
 }
 
@@ -51,212 +46,6 @@ function recordTelegramPopupShown(userId: string) {
   catch { data = { count: 0, cycleStart: now }; }
   data.count += 1;
   localStorage.setItem(key, JSON.stringify(data));
-}
-
-// ─── MEMBERSHIP CARD ─────────────────────────────────────────────────────────
-function MembershipCard({ userId, fullName, email, profileImage, joinDate, country, isActivated }: {
-  userId: string; fullName: string; email: string;
-  profileImage?: string; joinDate: string;
-  country?: string; isActivated?: boolean;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const cardRef = useRef<HTMLDivElement>(null);
-  const memberId = 'CT-' + userId.substring(0, 6).toUpperCase() + '-' + new Date(joinDate).getFullYear();
-
-  const downloadCard = async () => {
-    if (!cardRef.current) return;
-    setLoading(true);
-    try {
-      const html2canvas = (await import('html2canvas')).default;
-
-      // Wait for all fonts and images before capture
-      await document.fonts.ready;
-      await new Promise(resolve => setTimeout(resolve, 400));
-
-      // html2canvas doesn't support CSS aspect-ratio or space-between reliably.
-      // Fix: create a hidden clone with EXPLICIT pixel width+height so
-      // html2canvas never has to calculate dimensions itself.
-      const CARD_W = 480;
-      const CARD_H = Math.round(CARD_W / 1.586); // = 302px — credit card ratio
-
-      const clone = cardRef.current.cloneNode(true) as HTMLElement;
-      clone.style.position = 'fixed';
-      clone.style.top = '-9999px';
-      clone.style.left = '-9999px';
-      clone.style.width = CARD_W + 'px';
-      clone.style.height = CARD_H + 'px';
-      clone.style.aspectRatio = 'unset';
-      // Card uses absolute positioning internally — no inner fix needed
-      document.body.appendChild(clone);
-
-      // Small delay so browser paints the clone
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      const canvas = await html2canvas(clone, {
-        backgroundColor: '#ffffff',
-        scale: 3,
-        logging: false,
-        useCORS: true,
-        allowTaint: true,
-        width: CARD_W,
-        height: CARD_H,
-      });
-
-      document.body.removeChild(clone);
-
-      const link = document.createElement('a');
-      link.href = canvas.toDataURL('image/png');
-      link.download = 'charity-membership-' + userId + '.png';
-      link.click();
-    } catch (e) {
-      console.error('Download error:', e);
-      setError('Failed to download. Try again.');
-    }
-    finally { setLoading(false); }
-  };
-
-  if (!profileImage) {
-    return (
-      <div style={{ padding: 18, borderRadius: 14, border: '1px solid rgba(255,193,7,0.3)', backgroundColor: 'rgba(255,193,7,0.06)', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <AlertCircle style={{ width: 18, height: 18, color: '#ffc107', flexShrink: 0, marginTop: 2 }} />
-        <div>
-          <p style={{ fontWeight: 700, color: 'white', marginBottom: 4, fontSize: 13 }}>Upload Profile Picture to Generate ID Card</p>
-          <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6 }}>Your membership card will appear here once you upload a profile photo.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {error && <p style={{ fontSize: 12, color: '#ff6b6b', textAlign: 'center' }}>{error}</p>}
-
-      <div
-        ref={cardRef}
-        style={{
-          width: '100%',
-          maxWidth: 480,
-          aspectRatio: '1.586',
-          margin: '0 auto',
-          borderRadius: 16,
-          overflow: 'hidden',
-          position: 'relative',
-          fontFamily: 'Arial, Helvetica, sans-serif',
-          background: 'linear-gradient(135deg, #e8faf8 0%, #ffffff 40%, #e8faf8 100%)',
-          border: '2.5px solid #00CEC9',
-          boxShadow: '0 6px 24px rgba(0,206,201,0.18)',
-        }}
-      >
-        {/* Decorative bg circle */}
-        <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(0,206,201,0.07)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: -30, left: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(0,184,148,0.05)', pointerEvents: 'none' }} />
-
-        {/* Top accent bar */}
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 7, background: 'linear-gradient(to right, #00CEC9, #00B894, #00CEC9)', zIndex: 2 }} />
-
-        {/* ── ROW 1: HEADER — logo left, member ID right ── */}
-        <div style={{ position: 'absolute', top: 17, left: 16, right: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1 }}>
-          {/* Logo + title */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <img
-              src="/Charity token logo.jpg"
-              alt="CT"
-              style={{ width: 38, height: 38, borderRadius: 9, objectFit: 'cover', flexShrink: 0, border: '1.5px solid rgba(0,206,201,0.4)' }}
-              crossOrigin="anonymous"
-            />
-            <div>
-              <p style={{ fontSize: 13, fontWeight: 900, color: '#007B8A', margin: 0, letterSpacing: 1.2, lineHeight: 1.2, textDecoration: 'none' }}>CHARITY TOKEN</p>
-              <p style={{ fontSize: 8.5, color: '#5eadb5', margin: 0, fontWeight: 700, letterSpacing: 0.8, textDecoration: 'none' }}>MEMBERSHIP CARD</p>
-            </div>
-          </div>
-          {/* Member ID */}
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.6, textDecoration: 'none' }}>MEMBER ID</p>
-            <p style={{ fontSize: 11.5, fontFamily: 'monospace', color: '#007B8A', fontWeight: 900, margin: 0, letterSpacing: 0.5, textDecoration: 'none' }}>{memberId}</p>
-          </div>
-        </div>
-
-        {/* Thin divider under header */}
-        <div style={{ position: 'absolute', top: 68, left: 16, right: 16, height: 1, background: 'linear-gradient(to right, rgba(0,206,201,0.3), rgba(0,184,148,0.3))', zIndex: 1 }} />
-
-        {/* ── ROW 2: PHOTO + DETAILS ── */}
-        <div style={{ position: 'absolute', top: 78, left: 16, right: 16, display: 'flex', gap: 16, alignItems: 'flex-start', zIndex: 1 }}>
-          {/* Profile photo */}
-          <img
-            src={profileImage}
-            alt={fullName}
-            style={{ width: 100, height: 100, borderRadius: 12, objectFit: 'cover', border: '2.5px solid #00CEC9', flexShrink: 0, display: 'block' }}
-            crossOrigin="anonymous"
-          />
-          {/* Info */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Full name */}
-            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', textDecoration: 'none' }}>Full Name</p>
-            <p style={{ fontSize: 17, fontWeight: 900, color: '#111827', margin: '0 0 7px', lineHeight: 1.15, wordBreak: 'break-word', textDecoration: 'none' }}>{fullName || 'Beneficiary'}</p>
-            {/* Email — wrapped in span to kill all inherited link styles */}
-            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', textDecoration: 'none' }}>Email</p>
-            <p style={{ fontSize: 10, fontWeight: 700, color: '#0369a1', margin: '0 0 6px', lineHeight: 1.3, wordBreak: 'break-all', textDecoration: 'none !important' as any }}>
-              <span style={{ textDecoration: 'none', borderBottom: 'none', WebkitTextDecoration: 'none' } as any}>{email}</span>
-            </p>
-            {/* Country */}
-            {country && (
-              <p style={{ fontSize: 10, fontWeight: 600, color: '#5eadb5', margin: 0, textDecoration: 'none' }}>📍 {country}</p>
-            )}
-          </div>
-        </div>
-
-        {/* ── ROW 3: FOOTER BAR ── */}
-        <div style={{
-          position: 'absolute', bottom: 12, left: 16, right: 16, zIndex: 1,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          borderTop: '1.5px solid #A7F3D0', paddingTop: 8,
-        }}>
-          {/* Member since */}
-          <div>
-            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.6, textDecoration: 'none' }}>MEMBER SINCE</p>
-            <p style={{ fontSize: 13, fontWeight: 900, color: '#111827', margin: 0, textDecoration: 'none' }}>
-              {new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
-            </p>
-          </div>
-          {/* Status badge */}
-          <div style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 3px', fontWeight: 700, letterSpacing: 0.6, textDecoration: 'none' }}>STATUS</p>
-            <div style={{
-              display: 'inline-block',
-              fontSize: 10, padding: '3px 12px', borderRadius: 999, fontWeight: 900,
-              backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7',
-              color: isActivated ? '#065F46' : '#92400E',
-              border: `1.5px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}`,
-              lineHeight: 1.6, letterSpacing: 0.5,
-              textDecoration: 'none',
-            }}>
-              {isActivated ? 'ACTIVE' : 'PENDING'}
-            </div>
-          </div>
-          {/* Monthly tokens */}
-          <div style={{ textAlign: 'right' }}>
-            <p style={{ fontSize: 8.5, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.6, textDecoration: 'none' }}>MONTHLY</p>
-            <p style={{ fontSize: 18, fontWeight: 900, color: '#065F46', margin: 0, lineHeight: 1, textDecoration: 'none' }}>500 CT</p>
-          </div>
-        </div>
-
-        {/* Bottom accent bar */}
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 5, background: 'linear-gradient(to right, #00B894, #00CEC9, #00B894)', zIndex: 2 }} />
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <button
-          onClick={downloadCard}
-          disabled={loading}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 24px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
-        >
-          <Download style={{ width: 16, height: 16 }} />
-          {loading ? 'Generating...' : 'Download ID Card'}
-        </button>
-      </div>
-    </div>
-  );
 }
 
 // ─── LEGAL FOOTER ─────────────────────────────────────────────────────────────
@@ -333,7 +122,6 @@ export default function BeneficiaryDashboardPage() {
         .maybeSingle();
       setBalance(bal);
 
-      // ── TELEGRAM POPUP: show for first 5 logins, pause 30 days, repeat ──
       if (bal?.payment_status === 'verified' && shouldShowTelegramPopup(user.id)) {
         setShowTelegramPopup(true);
       }
@@ -469,7 +257,7 @@ export default function BeneficiaryDashboardPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif', position: 'relative', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
-      {/* ── TELEGRAM POPUP ─────────────────────────────────────────────────── */}
+      {/* TELEGRAM POPUP */}
       {showTelegramPopup && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 200, backdropFilter: 'blur(6px)' }}>
           <div style={{ width: '100%', maxWidth: 420, backgroundColor: '#0F1F35', border: '1px solid rgba(0,136,204,0.3)', borderRadius: 22, padding: 32, boxShadow: '0 40px 80px rgba(0,0,0,0.6)', textAlign: 'center', position: 'relative' }}>
@@ -569,8 +357,8 @@ export default function BeneficiaryDashboardPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
               {[
                 { label: 'Current Balance', value: balance?.current_balance?.toLocaleString() || '0', sub: 'Charity Tokens' },
-                { label: 'Total Earned', value: balance?.total_earned?.toLocaleString() || '0', sub: 'All time' },
-                { label: 'Monthly Reward', value: '500', sub: 'Starting 2027' },
+                { label: 'Total Earned',    value: balance?.total_earned?.toLocaleString()    || '0', sub: 'All time' },
+                { label: 'Monthly Reward',  value: '500',                                              sub: 'Starting 2027' },
               ].map((s) => (
                 <div key={s.label} style={{ padding: '14px 10px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
                   <p style={{ fontSize: 10, color: '#8FA3BF', margin: '0 0 5px' }}>{s.label}</p>
@@ -579,7 +367,17 @@ export default function BeneficiaryDashboardPage() {
                 </div>
               ))}
             </div>
-            <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} isActivated={isActivated} />
+
+            <MembershipCard
+              userId={user?.id || ''}
+              fullName={fullName}
+              email={user?.email || ''}
+              profileImage={profilePic}
+              joinDate={user?.created_at || new Date().toISOString()}
+              country={country}
+              isActivated={isActivated}
+            />
+
             {isPhilanthropist && <PhilanthropistDashboardCard />}
             {isAdmin && <AdminPanelCard />}
             {isActivated && !isPhilanthropist && <BecomePhilanthropistCard />}
@@ -609,6 +407,7 @@ export default function BeneficiaryDashboardPage() {
                 </div>
               </div>
             </div>
+
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, color: 'white', margin: 0 }}>Personal Information</p>
@@ -629,9 +428,9 @@ export default function BeneficiaryDashboardPage() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {[
-                  { label: 'Full Name', value: fullName, setter: setFullName, placeholder: 'Enter your full name', type: 'text' },
-                  { label: 'Country', value: country, setter: setCountry, placeholder: 'Enter your country', type: 'text' },
-                  { label: 'Phone Number', value: phone, setter: setPhone, placeholder: 'Enter your phone number', type: 'tel' },
+                  { label: 'Full Name',     value: fullName, setter: setFullName, placeholder: 'Enter your full name',     type: 'text' },
+                  { label: 'Country',       value: country,  setter: setCountry,  placeholder: 'Enter your country',       type: 'text' },
+                  { label: 'Phone Number',  value: phone,    setter: setPhone,    placeholder: 'Enter your phone number',  type: 'tel'  },
                 ].map((field) => (
                   <div key={field.label}>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8FA3BF', marginBottom: 6 }}>{field.label}</label>
@@ -652,10 +451,20 @@ export default function BeneficiaryDashboardPage() {
                 </div>
               </div>
             </div>
+
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Your Membership ID Card</p>
-              <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} isActivated={isActivated} />
+              <MembershipCard
+                userId={user?.id || ''}
+                fullName={fullName}
+                email={user?.email || ''}
+                profileImage={profilePic}
+                joinDate={user?.created_at || new Date().toISOString()}
+                country={country}
+                isActivated={isActivated}
+              />
             </div>
+
             {isPhilanthropist && <PhilanthropistDashboardCard />}
             {isAdmin && <AdminPanelCard />}
             {isActivated && !isPhilanthropist && <BecomePhilanthropistCard />}
@@ -673,29 +482,31 @@ export default function BeneficiaryDashboardPage() {
                 <p style={{ fontSize: 12, color: '#4A5568', marginTop: 4 }}>Token distributions begin in 2027.</p>
               </div>
             ) : (
-              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(0,206,201,0.2)' }}>
-                    {['Type', 'Amount', 'Status', 'Date'].map((h) => (
-                      <th key={h} style={{ textAlign: 'left', paddingBottom: 10, color: '#8FA3BF', fontWeight: 600 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((tx) => (
-                    <tr key={tx.id} style={{ borderBottom: '1px solid rgba(0,206,201,0.08)' }}>
-                      <td style={{ padding: '11px 0', color: 'white', textTransform: 'capitalize' }}>{tx.transaction_type}</td>
-                      <td style={{ padding: '11px 0', color: tx.amount > 0 ? '#00B894' : '#ff6b6b', fontWeight: 600 }}>{tx.amount > 0 ? '+' : ''}{tx.amount?.toLocaleString()}</td>
-                      <td style={{ padding: '11px 0' }}>
-                        <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, backgroundColor: tx.status === 'completed' ? 'rgba(0,184,148,0.15)' : 'rgba(255,193,7,0.15)', color: tx.status === 'completed' ? '#00B894' : '#ffc107' }}>
-                          {tx.status}
-                        </span>
-                      </td>
-                      <td style={{ padding: '11px 0', color: '#8FA3BF' }}>{new Date(tx.created_at).toLocaleDateString()}</td>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', minWidth: 340 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(0,206,201,0.2)' }}>
+                      {['Type', 'Amount', 'Status', 'Date'].map((h) => (
+                        <th key={h} style={{ textAlign: 'left', paddingBottom: 10, color: '#8FA3BF', fontWeight: 600 }}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {transactions.map((tx) => (
+                      <tr key={tx.id} style={{ borderBottom: '1px solid rgba(0,206,201,0.08)' }}>
+                        <td style={{ padding: '11px 0', color: 'white', textTransform: 'capitalize' }}>{tx.transaction_type}</td>
+                        <td style={{ padding: '11px 0', color: tx.amount > 0 ? '#00B894' : '#ff6b6b', fontWeight: 600 }}>{tx.amount > 0 ? '+' : ''}{tx.amount?.toLocaleString()}</td>
+                        <td style={{ padding: '11px 0' }}>
+                          <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, backgroundColor: tx.status === 'completed' ? 'rgba(0,184,148,0.15)' : 'rgba(255,193,7,0.15)', color: tx.status === 'completed' ? '#00B894' : '#ffc107' }}>
+                            {tx.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '11px 0', color: '#8FA3BF' }}>{new Date(tx.created_at).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}

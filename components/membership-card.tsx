@@ -9,15 +9,18 @@ interface MembershipCardProps {
   email: string;
   profileImage?: string;
   joinDate: string;
+  country?: string;
+  isActivated?: boolean;
 }
 
-export function MembershipCard({ userId, fullName, email, profileImage, joinDate }: MembershipCardProps) {
+export function MembershipCard({
+  userId, fullName, email, profileImage, joinDate, country, isActivated = true
+}: MembershipCardProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const cardRef = useRef<HTMLDivElement>(null);
 
   const memberId = 'CT-' + userId.substring(0, 6).toUpperCase() + '-' + new Date(joinDate).getFullYear();
-  const hasProfileImage = !!profileImage && profileImage.length > 0;
 
   const downloadCard = async () => {
     if (!cardRef.current) return;
@@ -25,31 +28,58 @@ export function MembershipCard({ userId, fullName, email, profileImage, joinDate
     setLoading(true);
     try {
       const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: '#0a1628',
-        scale: 3,
-        logging: false,
-        useCORS: true,
-        allowTaint: true,
+
+      await document.fonts.ready;
+      await new Promise(r => setTimeout(r, 500));
+
+      const W = 960;
+      const H = 605;
+
+      const clone = cardRef.current.cloneNode(true) as HTMLElement;
+      Object.assign(clone.style, {
+        position:    'fixed',
+        top:         '-99999px',
+        left:        '-99999px',
+        width:       W + 'px',
+        height:      H + 'px',
+        aspectRatio: 'unset',
+        margin:      '0',
+        borderRadius:'16px',
+        overflow:    'hidden',
       });
-      const link = document.createElement('a');
-      link.href = canvas.toDataURL('image/png');
-      link.download = 'charity-token-membership-' + userId + '.png';
-      link.click();
-    } catch (err) {
-      setError('Failed to download. Please try again.');
+      document.body.appendChild(clone);
+      await new Promise(r => setTimeout(r, 150));
+
+      const canvas = await html2canvas(clone, {
+        backgroundColor: '#ffffff',
+        scale:           2,
+        logging:         false,
+        useCORS:         true,
+        allowTaint:      true,
+        width:           W,
+        height:          H,
+      });
+      document.body.removeChild(clone);
+
+      const a = document.createElement('a');
+      a.href     = canvas.toDataURL('image/png');
+      a.download = 'charity-token-membership-' + userId + '.png';
+      a.click();
+    } catch (e) {
+      console.error('Download error:', e);
+      setError('Download failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  if (!hasProfileImage) {
+  if (!profileImage) {
     return (
-      <div style={{ padding: '20px', borderRadius: 14, border: '1px solid rgba(255,193,7,0.3)', backgroundColor: 'rgba(255,193,7,0.06)', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-        <AlertCircle style={{ width: 20, height: 20, color: '#ffc107', flexShrink: 0, marginTop: 2 }} />
+      <div style={{ padding: 18, borderRadius: 14, border: '1px solid rgba(255,193,7,0.3)', backgroundColor: 'rgba(255,193,7,0.06)', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <AlertCircle style={{ width: 18, height: 18, color: '#ffc107', flexShrink: 0, marginTop: 2 }} />
         <div>
-          <p style={{ fontWeight: 700, color: 'white', marginBottom: 4, fontSize: 14 }}>Upload Profile Picture First</p>
-          <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6 }}>Upload your profile picture above to generate and download your membership card.</p>
+          <p style={{ fontWeight: 700, color: 'white', marginBottom: 4, fontSize: 13 }}>Upload Profile Picture to Generate ID Card</p>
+          <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.6 }}>Your membership card will appear here once you upload a profile photo.</p>
         </div>
       </div>
     );
@@ -57,107 +87,145 @@ export function MembershipCard({ userId, fullName, email, profileImage, joinDate
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {error && (
-        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 10 }}>
-          <AlertCircle style={{ width: 16, height: 16, color: '#ff6b6b', flexShrink: 0 }} />
-          <p style={{ fontSize: 13, color: '#ffb3b3' }}>{error}</p>
-        </div>
-      )}
+      {error && <p style={{ fontSize: 12, color: '#ff6b6b', textAlign: 'center', margin: 0 }}>{error}</p>}
 
-      {/* ID Card - standard CR80 aspect ratio 85.6mm x 53.98mm = 1.586:1 */}
+      {/* ── THE CARD ── */}
       <div
         ref={cardRef}
         style={{
-          width: '100%',
-          maxWidth: 480,
-          aspectRatio: '1.586',
-          margin: '0 auto',
+          width:        '100%',
+          maxWidth:     480,
+          aspectRatio:  '1.586',
+          margin:       '0 auto',
           borderRadius: 16,
-          overflow: 'hidden',
-          position: 'relative',
-          fontFamily: 'Arial, Helvetica, sans-serif',
-          background: 'linear-gradient(135deg, #0d2137 0%, #0a1628 50%, #0d2137 100%)',
-          border: '2px solid rgba(0,206,201,0.4)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(0,206,201,0.1)',
+          overflow:     'hidden',
+          position:     'relative',
+          fontFamily:   'Arial, Helvetica, sans-serif',
+          background:   'linear-gradient(135deg, #e6faf8 0%, #ffffff 45%, #e6faf8 100%)',
+          border:       '2.5px solid #00CEC9',
+          boxShadow:    '0 8px 32px rgba(0,206,201,0.18)',
+          boxSizing:    'border-box',
         }}
       >
-        {/* Background decorative circles */}
-        <div style={{ position: 'absolute', top: -40, right: -40, width: 180, height: 180, borderRadius: '50%', background: 'rgba(0,206,201,0.06)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: -60, left: -40, width: 200, height: 200, borderRadius: '50%', background: 'rgba(0,184,148,0.05)', pointerEvents: 'none' }} />
+        {/* Decorative blobs */}
+        <div style={{ position: 'absolute', top: -50, right: -50, width: 180, height: 180, borderRadius: '50%', background: 'rgba(0,206,201,0.08)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', bottom: -40, left: -40, width: 150, height: 150, borderRadius: '50%', background: 'rgba(0,184,148,0.06)', pointerEvents: 'none' }} />
 
-        {/* Top stripe */}
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: 'linear-gradient(to right, #00CEC9, #00B894)' }} />
+        {/* Top accent bar */}
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 7, background: 'linear-gradient(to right, #00CEC9, #00B894, #00CEC9)', zIndex: 2 }} />
 
-        <div style={{ padding: '20px 24px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        {/* Content area — fills between top and bottom bars */}
+        <div style={{
+          position:       'absolute',
+          top:            7,
+          bottom:         5,
+          left:           0,
+          right:          0,
+          padding:        '10px 16px',
+          display:        'flex',
+          flexDirection:  'column',
+          justifyContent: 'space-between',
+          boxSizing:      'border-box',
+        }}>
 
-          {/* Header */}
+          {/* ROW 1: Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg, #00CEC9, #00B894)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <span style={{ fontSize: 14, fontWeight: 900, color: 'white' }}>CT</span>
-              </div>
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 800, color: '#00CEC9', margin: 0, letterSpacing: 1 }}>CHARITY TOKEN</p>
-                <p style={{ fontSize: 9, color: 'rgba(207,250,254,0.6)', margin: 0, letterSpacing: 0.5 }}>MEMBERSHIP CARD</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/Charity token logo.jpg"
+                alt="CT"
+                style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', border: '1.5px solid rgba(0,206,201,0.35)', flexShrink: 0, display: 'block' }}
+                crossOrigin="anonymous"
+              />
+              <div style={{ lineHeight: 1 }}>
+                <p style={{ fontSize: 12, fontWeight: 900, color: '#007B8A', margin: 0, letterSpacing: 1 }}>CHARITY TOKEN</p>
+                <p style={{ fontSize: 8,  fontWeight: 700, color: '#5eadb5', margin: '2px 0 0', letterSpacing: 0.6 }}>MEMBERSHIP CARD</p>
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: 9, color: 'rgba(207,250,254,0.5)', margin: 0 }}>MEMBER ID</p>
-              <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#00CEC9', fontWeight: 700, margin: 0 }}>{memberId}</p>
+              <p style={{ fontSize: 8, fontWeight: 700, color: '#9CA3AF', margin: '0 0 1px', letterSpacing: 0.5 }}>MEMBER ID</p>
+              <p style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 900, color: '#007B8A', margin: 0 }}>{memberId}</p>
             </div>
           </div>
 
-          {/* Body */}
-          <div style={{ display: 'flex', gap: 18, alignItems: 'center' }}>
+          {/* Thin divider */}
+          <div style={{ height: 1, background: 'linear-gradient(to right, rgba(0,206,201,0.25), rgba(0,184,148,0.25))', flexShrink: 0 }} />
+
+          {/* ROW 2: Photo + Details */}
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center', flex: 1, minHeight: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={profileImage}
               alt={fullName}
-              style={{ width: 80, height: 80, borderRadius: 10, objectFit: 'cover', border: '2px solid rgba(0,206,201,0.5)', flexShrink: 0 }}
+              style={{ width: 88, height: 88, borderRadius: 10, objectFit: 'cover', border: '2.5px solid #00CEC9', flexShrink: 0, display: 'block' }}
+              crossOrigin="anonymous"
             />
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: 9, color: 'rgba(207,250,254,0.5)', margin: '0 0 3px', letterSpacing: 0.5 }}>FULL NAME</p>
-              <p style={{ fontSize: 16, fontWeight: 800, color: 'white', margin: '0 0 10px', lineHeight: 1.2 }}>{fullName}</p>
-              <p style={{ fontSize: 9, color: 'rgba(207,250,254,0.5)', margin: '0 0 3px', letterSpacing: 0.5 }}>EMAIL</p>
-              <p style={{ fontSize: 11, color: '#67e8f9', margin: 0 }}>{email}</p>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 8, fontWeight: 700, color: '#9CA3AF', margin: '0 0 1px', letterSpacing: 0.7, textTransform: 'uppercase' }}>Full Name</p>
+              <p style={{ fontSize: 16, fontWeight: 900, color: '#111827', margin: '0 0 6px', lineHeight: 1.15, wordBreak: 'break-word' }}>
+                {fullName || 'Beneficiary'}
+              </p>
+              <p style={{ fontSize: 8, fontWeight: 700, color: '#9CA3AF', margin: '0 0 1px', letterSpacing: 0.7, textTransform: 'uppercase' }}>Email</p>
+              <p style={{ fontSize: 9.5, fontWeight: 700, color: '#0369a1', margin: '0 0 5px', lineHeight: 1.3, wordBreak: 'break-all', textDecoration: 'none' }}>
+                {email}
+              </p>
+              {country && (
+                <p style={{ fontSize: 9.5, fontWeight: 600, color: '#5eadb5', margin: 0 }}>📍 {country}</p>
+              )}
             </div>
           </div>
 
-          {/* Footer */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid rgba(0,206,201,0.2)', paddingTop: 12 }}>
+          {/* ROW 3: Footer */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #A7F3D0', paddingTop: 7, flexShrink: 0 }}>
             <div>
-              <p style={{ fontSize: 9, color: 'rgba(207,250,254,0.5)', margin: '0 0 3px', letterSpacing: 0.5 }}>MEMBER SINCE</p>
-              <p style={{ fontSize: 12, fontWeight: 700, color: 'white', margin: 0 }}>{new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</p>
+              <p style={{ fontSize: 7.5, fontWeight: 700, color: '#9CA3AF', margin: '0 0 1px', letterSpacing: 0.5 }}>MEMBER SINCE</p>
+              <p style={{ fontSize: 12, fontWeight: 900, color: '#111827', margin: 0 }}>
+                {new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+              </p>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <p style={{ fontSize: 9, color: 'rgba(207,250,254,0.5)', margin: '0 0 3px', letterSpacing: 0.5 }}>STATUS</p>
-              <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(0,184,148,0.2)', color: '#00B894', fontWeight: 700, border: '1px solid rgba(0,184,148,0.4)' }}>ACTIVE</span>
+              <p style={{ fontSize: 7.5, fontWeight: 700, color: '#9CA3AF', margin: '0 0 3px', letterSpacing: 0.5 }}>STATUS</p>
+              <div style={{
+                display: 'inline-block', fontSize: 9, fontWeight: 900,
+                padding: '3px 10px', borderRadius: 999, letterSpacing: 0.4,
+                backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7',
+                color:           isActivated ? '#065F46' : '#92400E',
+                border:          `1.5px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}`,
+              }}>
+                {isActivated ? 'ACTIVE' : 'PENDING'}
+              </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: 9, color: 'rgba(207,250,254,0.5)', margin: '0 0 3px', letterSpacing: 0.5 }}>MONTHLY BENEFIT</p>
-              <p style={{ fontSize: 16, fontWeight: 800, color: '#00B894', margin: 0 }}>500 CT</p>
+              <p style={{ fontSize: 7.5, fontWeight: 700, color: '#9CA3AF', margin: '0 0 1px', letterSpacing: 0.5 }}>MONTHLY</p>
+              <p style={{ fontSize: 17, fontWeight: 900, color: '#065F46', margin: 0, lineHeight: 1 }}>500 CT</p>
             </div>
           </div>
-
         </div>
 
-        {/* Bottom stripe */}
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(to right, #00B894, #00CEC9)' }} />
+        {/* Bottom accent bar */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 5, background: 'linear-gradient(to right, #00B894, #00CEC9, #00B894)', zIndex: 2 }} />
       </div>
 
+      {/* Download button */}
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <button
           onClick={downloadCard}
           disabled={loading}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 28px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 8px 24px rgba(0,206,201,0.25)' }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '12px 28px', borderRadius: 12,
+            background: 'linear-gradient(to right, #00CEC9, #00B894)',
+            color: 'white', fontWeight: 700, fontSize: 14, border: 'none',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.7 : 1,
+            boxShadow: '0 8px 24px rgba(0,206,201,0.25)',
+          }}
         >
-          <Download style={{ width: 18, height: 18 }} />
+          <Download style={{ width: 16, height: 16 }} />
           {loading ? 'Generating...' : 'Download ID Card'}
         </button>
       </div>
-
-      <p style={{ fontSize: 11, color: '#8FA3BF', textAlign: 'center' }}>
-        Member ID: {memberId}
-      </p>
     </div>
   );
 }
