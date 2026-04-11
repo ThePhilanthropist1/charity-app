@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase-client';
 import { useAuth } from '@/contexts/auth-context';
 import { ProtectedRoute } from '@/components/protected-route';
+import { StatsBanner } from '@/components/stats-banner';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -20,6 +21,13 @@ export default function AdminMainDashboardPage() {
     total_philanthropists: 0, approved_philanthropists: 0,
     pending_kyc: 0, total_tokens_distributed: 0,
   });
+  const [bannerStats, setBannerStats] = useState({
+    activeLast24h: 0,
+    totalActivated: 0,
+    activePhilanthropists: 0,
+    goalPercent: 0,
+    generatedAt: '',
+  });
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
@@ -33,6 +41,31 @@ export default function AdminMainDashboardPage() {
     if (!isAdmin) { router.push('/beneficiary-dashboard'); return; }
     loadDashboard();
   }, [user, authLoading]);
+
+  const loadBannerStats = async () => {
+    try {
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const [
+        { count: total },
+        { count: last24h },
+        { count: philanthropists },
+      ] = await Promise.all([
+        supabase.from('beneficiary_activations').select('*', { count: 'exact', head: true }).eq('payment_status', 'verified'),
+        supabase.from('beneficiary_activations').select('*', { count: 'exact', head: true }).eq('payment_status', 'verified').gte('activated_at', yesterday),
+        supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'philanthropist'),
+      ]);
+      const totalCount = total ?? 0;
+      setBannerStats({
+        activeLast24h: last24h ?? 0,
+        totalActivated: totalCount,
+        activePhilanthropists: philanthropists ?? 0,
+        goalPercent: parseFloat(((totalCount / 1000000) * 100).toFixed(2)),
+        generatedAt: new Date().toLocaleDateString('en-GB', {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        }),
+      });
+    } catch (e) { console.error('Banner stats error:', e); }
+  };
 
   const loadDashboard = async () => {
     try {
@@ -50,6 +83,7 @@ export default function AdminMainDashboardPage() {
         total_philanthropists: philanthropists.length, approved_philanthropists: approvedPhil || 0,
         pending_kyc: pendingKyc || 0, total_tokens_distributed: totalDistributed,
       });
+      await loadBannerStats();
     } catch (error) { console.error('Error loading dashboard:', error); }
     finally { setLoading(false); }
   };
@@ -90,6 +124,7 @@ export default function AdminMainDashboardPage() {
           <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 800, height: 800, background: 'radial-gradient(circle, rgba(108,63,200,0.05) 0%, transparent 70%)', borderRadius: '50%' }} />
         </div>
 
+        {/* HEADER */}
         <header style={{ position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(10,22,40,0.95)', backdropFilter: 'blur(12px)' }}>
           <div style={{ maxWidth: 1200, margin: '0 auto', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -115,12 +150,14 @@ export default function AdminMainDashboardPage() {
         </header>
 
         <main style={{ maxWidth: 1200, margin: '0 auto', padding: '28px 24px 60px', position: 'relative', zIndex: 10 }}>
+
           <div style={{ marginBottom: 28 }}>
             <p style={{ fontSize: 11, color: '#9B59B6', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase', fontWeight: 600 }}>Platform Management</p>
             <h1 style={{ fontSize: 32, fontWeight: 800, color: 'white', margin: 0 }}>Admin Dashboard</h1>
             <p style={{ fontSize: 13, color: '#8FA3BF', marginTop: 6 }}>Monitor platform activity, manage users, and review KYC submissions</p>
           </div>
 
+          {/* STATS CARDS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
             {[
               { label: 'Active Beneficiaries', value: stats.active_beneficiaries.toLocaleString(), sub: 'Verified accounts', icon: <Users style={{ width: 20, height: 20, color: '#00CEC9' }} />, color: '#00CEC9', bg: 'rgba(0,206,201,0.1)' },
@@ -137,6 +174,7 @@ export default function AdminMainDashboardPage() {
             ))}
           </div>
 
+          {/* QUICK ACTIONS */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
             <Link href="/admin/kyc-review" style={{ textDecoration: 'none' }}>
               <div style={{ padding: '20px 24px', borderRadius: 16, border: `1px solid ${stats.pending_kyc > 0 ? 'rgba(255,193,7,0.4)' : 'rgba(0,206,201,0.25)'}`, background: stats.pending_kyc > 0 ? 'linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(0,206,201,0.06) 100%)' : 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.06) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -169,6 +207,35 @@ export default function AdminMainDashboardPage() {
             </Link>
           </div>
 
+          {/* ── DAILY STATS BANNER ─────────────────────────────────────────────── */}
+          <div style={{ padding: '28px', borderRadius: 20, border: '1px solid rgba(255,193,7,0.2)', backgroundColor: 'rgba(255,193,7,0.03)', marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 4, height: 18, backgroundColor: '#ffc107', borderRadius: 2, display: 'inline-block' }} />
+                  Daily Stats Banner
+                </p>
+                <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>
+                  Download and post on social media every day. Exports as 1080×1080px PNG.
+                </p>
+              </div>
+              <button
+                onClick={loadBannerStats}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 10, border: '1px solid rgba(0,206,201,0.3)', backgroundColor: 'rgba(0,206,201,0.08)', color: '#67e8f9', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                🔄 Refresh Stats
+              </button>
+            </div>
+            <StatsBanner
+              activeLast24h={bannerStats.activeLast24h}
+              totalActivated={bannerStats.totalActivated}
+              activePhilanthropists={bannerStats.activePhilanthropists}
+              goalPercent={bannerStats.goalPercent}
+              generatedAt={bannerStats.generatedAt}
+            />
+          </div>
+
+          {/* USERS TABLE */}
           <div style={{ padding: '24px', borderRadius: 20, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.02)', marginBottom: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
@@ -177,7 +244,12 @@ export default function AdminMainDashboardPage() {
                 </p>
                 <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{users.length} total users registered</p>
               </div>
-              <input placeholder="Search by name, email or role..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ padding: '10px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', width: 260 }} />
+              <input
+                placeholder="Search by name, email or role..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ padding: '10px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', width: 260 }}
+              />
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
@@ -193,7 +265,10 @@ export default function AdminMainDashboardPage() {
                     <tr key={u.id} style={{ borderBottom: '1px solid rgba(0,206,201,0.06)' }}>
                       <td style={{ padding: '14px 16px 14px 0', color: 'white', fontWeight: 500 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {u.profile_picture ? <img src={u.profile_picture} alt={u.full_name} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(0,206,201,0.3)', flexShrink: 0 }} /> : <div style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid rgba(0,206,201,0.2)' }}><span style={{ fontSize: 13, fontWeight: 700, color: '#00CEC9' }}>{(u.full_name || u.email || 'U')[0].toUpperCase()}</span></div>}
+                          {u.profile_picture
+                            ? <img src={u.profile_picture} alt={u.full_name} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(0,206,201,0.3)', flexShrink: 0 }} />
+                            : <div style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid rgba(0,206,201,0.2)' }}><span style={{ fontSize: 13, fontWeight: 700, color: '#00CEC9' }}>{(u.full_name || u.email || 'U')[0].toUpperCase()}</span></div>
+                          }
                           <span>{u.full_name || 'No name'}</span>
                         </div>
                       </td>
@@ -212,9 +287,14 @@ export default function AdminMainDashboardPage() {
                 </tbody>
               </table>
             </div>
-            {filteredUsers.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0' }}><p style={{ color: '#8FA3BF', fontSize: 14 }}>No users match your search.</p></div>}
+            {filteredUsers.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <p style={{ color: '#8FA3BF', fontSize: 14 }}>No users match your search.</p>
+              </div>
+            )}
           </div>
 
+          {/* ADMIN LOGS */}
           <div style={{ padding: '24px', borderRadius: 20, border: '1px solid rgba(0,206,201,0.15)', backgroundColor: 'rgba(255,255,255,0.02)' }}>
             <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 4, height: 18, backgroundColor: '#67e8f9', borderRadius: 2, display: 'inline-block' }} />Recent Admin Actions
@@ -224,8 +304,10 @@ export default function AdminMainDashboardPage() {
               <p style={{ fontSize: 14, color: '#8FA3BF' }}>Admin action logs will appear here</p>
             </div>
           </div>
+
         </main>
 
+        {/* USER DETAIL MODAL */}
         {selectedUser && (
           <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100, backdropFilter: 'blur(4px)' }}>
             <div style={{ width: '100%', maxWidth: 460, backgroundColor: '#0F1F35', border: '1px solid rgba(0,206,201,0.2)', borderRadius: 20, padding: 28, boxShadow: '0 40px 80px rgba(0,0,0,0.5)' }}>
@@ -236,7 +318,10 @@ export default function AdminMainDashboardPage() {
                 </button>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24, padding: '16px', borderRadius: 14, backgroundColor: 'rgba(0,206,201,0.04)', border: '1px solid rgba(0,206,201,0.1)' }}>
-                {selectedUser.profile_picture ? <img src={selectedUser.profile_picture} alt={selectedUser.full_name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(0,206,201,0.4)', flexShrink: 0 }} /> : <div style={{ width: 52, height: 52, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(0,206,201,0.3)', flexShrink: 0 }}><span style={{ fontSize: 22, fontWeight: 800, color: '#00CEC9' }}>{(selectedUser.full_name || selectedUser.email || 'U')[0].toUpperCase()}</span></div>}
+                {selectedUser.profile_picture
+                  ? <img src={selectedUser.profile_picture} alt={selectedUser.full_name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(0,206,201,0.4)', flexShrink: 0 }} />
+                  : <div style={{ width: 52, height: 52, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(0,206,201,0.3)', flexShrink: 0 }}><span style={{ fontSize: 22, fontWeight: 800, color: '#00CEC9' }}>{(selectedUser.full_name || selectedUser.email || 'U')[0].toUpperCase()}</span></div>
+                }
                 <div>
                   <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 4px' }}>{selectedUser.full_name || 'No name'}</p>
                   <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{selectedUser.email}</p>
@@ -280,6 +365,7 @@ export default function AdminMainDashboardPage() {
             </div>
           </div>
         )}
+
       </div>
     </ProtectedRoute>
   );
