@@ -70,29 +70,54 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
     try {
       const html2canvas = (await import('html2canvas')).default;
 
-      // Wait for fonts and images to fully load before capture
+      // Wait for all fonts and images before capture
       await document.fonts.ready;
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 400));
 
-      const canvas = await html2canvas(cardRef.current, {
+      // html2canvas doesn't support CSS aspect-ratio or space-between reliably.
+      // Fix: create a hidden clone with EXPLICIT pixel width+height so
+      // html2canvas never has to calculate dimensions itself.
+      const CARD_W = 480;
+      const CARD_H = Math.round(CARD_W / 1.586); // = 302px
+
+      const clone = cardRef.current.cloneNode(true) as HTMLElement;
+      clone.style.position = 'fixed';
+      clone.style.top = '-9999px';
+      clone.style.left = '-9999px';
+      clone.style.width = CARD_W + 'px';
+      clone.style.height = CARD_H + 'px';
+      clone.style.aspectRatio = 'unset';
+      // Make inner flex column use explicit height so space-between works
+      const inner = clone.querySelector('div[style*="space-between"]') as HTMLElement;
+      if (inner) {
+        inner.style.height = CARD_H + 'px';
+        inner.style.boxSizing = 'border-box';
+      }
+      document.body.appendChild(clone);
+
+      // Small delay so browser paints the clone
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const canvas = await html2canvas(clone, {
         backgroundColor: '#ffffff',
         scale: 3,
         logging: false,
         useCORS: true,
         allowTaint: true,
-        // Use explicit pixel dimensions to avoid aspect-ratio calculation bugs
-        width: cardRef.current.offsetWidth,
-        height: cardRef.current.offsetHeight,
-        windowWidth: cardRef.current.offsetWidth,
-        windowHeight: cardRef.current.offsetHeight,
-        // Force html2canvas to ignore transforms
-        ignoreElements: (el) => el.classList.contains('no-capture'),
+        width: CARD_W,
+        height: CARD_H,
       });
+
+      document.body.removeChild(clone);
+
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
       link.download = 'charity-membership-' + userId + '.png';
       link.click();
-    } catch { setError('Failed to download. Try again.'); }
+    } catch (e) {
+      console.error('Download error:', e);
+      setError('Failed to download. Try again.');
+    }
     finally { setLoading(false); }
   };
 
@@ -111,10 +136,10 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {error && <p style={{ fontSize: 12, color: '#ff6b6b', textAlign: 'center' }}>{error}</p>}
-      <div ref={cardRef} style={{ width: '100%', maxWidth: 480, height: 'auto', minHeight: 180, margin: '0 auto', borderRadius: 16, overflow: 'hidden', position: 'relative', fontFamily: 'Arial, sans-serif', background: 'linear-gradient(135deg, #f0fdfc 0%, #ffffff 50%, #f0fdfc 100%)', border: '2px solid #00CEC9', boxShadow: '0 4px 20px rgba(0,206,201,0.15)' }}>
+      <div ref={cardRef} style={{ width: '100%', maxWidth: 480, aspectRatio: '1.586', margin: '0 auto', borderRadius: 16, overflow: 'hidden', position: 'relative', fontFamily: 'Arial, sans-serif', background: 'linear-gradient(135deg, #f0fdfc 0%, #ffffff 50%, #f0fdfc 100%)', border: '2px solid #00CEC9', boxShadow: '0 4px 20px rgba(0,206,201,0.15)' }}>
         <div style={{ position: 'absolute', top: -40, right: -40, width: 180, height: 180, borderRadius: '50%', background: 'rgba(0,206,201,0.08)' }} />
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: 'linear-gradient(to right, #00CEC9, #00B894)' }} />
-        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ padding: '16px 20px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <img src="/Charity token logo.jpg" alt="Charity Token" style={{ width: 32, height: 32, borderRadius: 8, objectFit: 'cover' }} crossOrigin="anonymous" />
@@ -138,18 +163,18 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
               {country && <p style={{ fontSize: 10, color: '#6B7280', margin: 0 }}>📍 {country}</p>}
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #D1FAE5', paddingTop: 10, gap: 4 }}>
-            <div style={{ flexShrink: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #D1FAE5', paddingTop: 10 }}>
+            <div>
               <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>MEMBER SINCE</p>
               <p style={{ fontSize: 11, fontWeight: 700, color: '#111827', margin: 0 }}>{new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</p>
             </div>
-            <div style={{ textAlign: 'center', flexShrink: 0 }}>
+            <div style={{ textAlign: 'center' }}>
               <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>STATUS</p>
-              <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 999, backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7', color: isActivated ? '#065F46' : '#92400E', fontWeight: 700, border: `1px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}`, display: 'inline-block', whiteSpace: 'nowrap', lineHeight: 1.6 }}>
+              <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 999, backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7', color: isActivated ? '#065F46' : '#92400E', fontWeight: 700, border: `1px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}` }}>
                 {isActivated ? 'ACTIVE' : 'PENDING'}
               </span>
             </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ textAlign: 'right' }}>
               <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>MONTHLY</p>
               <p style={{ fontSize: 14, fontWeight: 800, color: '#065F46', margin: 0 }}>500 CT</p>
             </div>
