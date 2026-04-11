@@ -78,7 +78,7 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
       // Fix: create a hidden clone with EXPLICIT pixel width+height so
       // html2canvas never has to calculate dimensions itself.
       const CARD_W = 480;
-      const CARD_H = Math.round(CARD_W / 1.586); // = 302px
+      const CARD_H = Math.round(CARD_W / 1.586); // = 302px — credit card ratio
 
       const clone = cardRef.current.cloneNode(true) as HTMLElement;
       clone.style.position = 'fixed';
@@ -87,12 +87,7 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
       clone.style.width = CARD_W + 'px';
       clone.style.height = CARD_H + 'px';
       clone.style.aspectRatio = 'unset';
-      // Make inner flex column use explicit height so space-between works
-      const inner = clone.querySelector('div[style*="space-between"]') as HTMLElement;
-      if (inner) {
-        inner.style.height = CARD_H + 'px';
-        inner.style.boxSizing = 'border-box';
-      }
+      // Card uses absolute positioning internally — no inner fix needed
       document.body.appendChild(clone);
 
       // Small delay so browser paints the clone
@@ -136,54 +131,115 @@ function MembershipCard({ userId, fullName, email, profileImage, joinDate, count
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {error && <p style={{ fontSize: 12, color: '#ff6b6b', textAlign: 'center' }}>{error}</p>}
-      <div ref={cardRef} style={{ width: '100%', maxWidth: 480, aspectRatio: '1.586', margin: '0 auto', borderRadius: 16, overflow: 'hidden', position: 'relative', fontFamily: 'Arial, sans-serif', background: 'linear-gradient(135deg, #f0fdfc 0%, #ffffff 50%, #f0fdfc 100%)', border: '2px solid #00CEC9', boxShadow: '0 4px 20px rgba(0,206,201,0.15)' }}>
-        <div style={{ position: 'absolute', top: -40, right: -40, width: 180, height: 180, borderRadius: '50%', background: 'rgba(0,206,201,0.08)' }} />
+
+      {/*
+        Card is 480×302px (credit card ratio 1.586).
+        Layout: 3 rows packed tightly with no space-between gaps.
+        Row 1 (header): logo + title | member ID       ~40px
+        Row 2 (body):   large photo | name/email/info  ~160px
+        Row 3 (footer): since | status | monthly       ~44px
+        Top accent bar: 6px
+        Bottom accent:  4px
+        Padding: 12px sides, 10px top, 8px bottom
+        Total inner: 302 - 10 = 292px content height
+      */}
+      <div
+        ref={cardRef}
+        style={{
+          width: '100%',
+          maxWidth: 480,
+          aspectRatio: '1.586',
+          margin: '0 auto',
+          borderRadius: 16,
+          overflow: 'hidden',
+          position: 'relative',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          background: 'linear-gradient(135deg, #f0fdfc 0%, #ffffff 50%, #f0fdfc 100%)',
+          border: '2px solid #00CEC9',
+          boxShadow: '0 4px 20px rgba(0,206,201,0.15)',
+        }}
+      >
+        {/* Decorative circle */}
+        <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(0,206,201,0.07)', pointerEvents: 'none' }} />
+
+        {/* Top accent bar */}
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, background: 'linear-gradient(to right, #00CEC9, #00B894)' }} />
-        <div style={{ padding: '16px 20px', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <img src="/Charity token logo.jpg" alt="Charity Token" style={{ width: 32, height: 32, borderRadius: 8, objectFit: 'cover' }} crossOrigin="anonymous" />
-              <div>
-                <p style={{ fontSize: 11, fontWeight: 800, color: '#007B8A', margin: 0, letterSpacing: 1 }}>CHARITY TOKEN</p>
-                <p style={{ fontSize: 8, color: '#6B7280', margin: 0 }}>MEMBERSHIP CARD</p>
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: 8, color: '#9CA3AF', margin: 0 }}>MEMBER ID</p>
-              <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#007B8A', fontWeight: 700, margin: 0 }}>{memberId}</p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-            <img src={profileImage} alt={fullName} style={{ width: 72, height: 72, borderRadius: 10, objectFit: 'cover', border: '2px solid rgba(0,206,201,0.5)', flexShrink: 0 }} crossOrigin="anonymous" />
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px', letterSpacing: 0.5 }}>FULL NAME</p>
-              <p style={{ fontSize: 15, fontWeight: 800, color: '#111827', margin: '0 0 6px', lineHeight: 1.2 }}>{fullName || 'Beneficiary'}</p>
-              <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px', letterSpacing: 0.5 }}>EMAIL</p>
-              <p style={{ fontSize: 10, color: '#0369a1', margin: '0 0 4px', textDecoration: 'none', fontStyle: 'normal' }}>{email}</p>
-              {country && <p style={{ fontSize: 10, color: '#6B7280', margin: 0 }}>📍 {country}</p>}
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #D1FAE5', paddingTop: 10 }}>
+
+        {/* ── ROW 1: HEADER ── */}
+        <div style={{ position: 'absolute', top: 14, left: 14, right: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <img
+              src="/Charity token logo.jpg"
+              alt="CT"
+              style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }}
+              crossOrigin="anonymous"
+            />
             <div>
-              <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>MEMBER SINCE</p>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#111827', margin: 0 }}>{new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</p>
+              <p style={{ fontSize: 12, fontWeight: 900, color: '#007B8A', margin: 0, letterSpacing: 1, lineHeight: 1.2 }}>CHARITY TOKEN</p>
+              <p style={{ fontSize: 9, color: '#6B7280', margin: 0, fontWeight: 600, letterSpacing: 0.5 }}>MEMBERSHIP CARD</p>
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>STATUS</p>
-              <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 999, backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7', color: isActivated ? '#065F46' : '#92400E', fontWeight: 700, border: `1px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}` }}>
-                {isActivated ? 'ACTIVE' : 'PENDING'}
-              </span>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: 8, color: '#9CA3AF', margin: '0 0 2px' }}>MONTHLY</p>
-              <p style={{ fontSize: 14, fontWeight: 800, color: '#065F46', margin: 0 }}>500 CT</p>
-            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 1px', fontWeight: 600 }}>MEMBER ID</p>
+            <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#007B8A', fontWeight: 800, margin: 0 }}>{memberId}</p>
           </div>
         </div>
+
+        {/* ── ROW 2: PHOTO + INFO ── */}
+        <div style={{ position: 'absolute', top: 66, left: 14, right: 14, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+          <img
+            src={profileImage}
+            alt={fullName}
+            style={{ width: 96, height: 96, borderRadius: 12, objectFit: 'cover', border: '2.5px solid #00CEC9', flexShrink: 0 }}
+            crossOrigin="anonymous"
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' }}>Full Name</p>
+            <p style={{ fontSize: 16, fontWeight: 900, color: '#111827', margin: '0 0 8px', lineHeight: 1.15, wordBreak: 'break-word' }}>{fullName || 'Beneficiary'}</p>
+            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' }}>Email</p>
+            <p style={{ fontSize: 10, fontWeight: 700, color: '#0369a1', margin: '0 0 6px', textDecoration: 'none', wordBreak: 'break-all', lineHeight: 1.3 }}>{email}</p>
+            {country && (
+              <p style={{ fontSize: 10, fontWeight: 600, color: '#6B7280', margin: 0 }}>📍 {country}</p>
+            )}
+          </div>
+        </div>
+
+        {/* ── ROW 3: FOOTER ── */}
+        <div style={{ position: 'absolute', bottom: 12, left: 14, right: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #A7F3D0', paddingTop: 8 }}>
+          <div>
+            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.5 }}>MEMBER SINCE</p>
+            <p style={{ fontSize: 12, fontWeight: 800, color: '#111827', margin: 0 }}>
+              {new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+            </p>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 3px', fontWeight: 700, letterSpacing: 0.5 }}>STATUS</p>
+            <span style={{
+              fontSize: 10, padding: '3px 10px', borderRadius: 999, fontWeight: 800,
+              backgroundColor: isActivated ? '#D1FAE5' : '#FEF3C7',
+              color: isActivated ? '#065F46' : '#92400E',
+              border: `1.5px solid ${isActivated ? '#6EE7B7' : '#FDE68A'}`,
+              display: 'inline-block', lineHeight: 1.5,
+            }}>
+              {isActivated ? 'ACTIVE' : 'PENDING'}
+            </span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ fontSize: 9, color: '#9CA3AF', margin: '0 0 2px', fontWeight: 700, letterSpacing: 0.5 }}>MONTHLY</p>
+            <p style={{ fontSize: 16, fontWeight: 900, color: '#065F46', margin: 0, lineHeight: 1.1 }}>500 CT</p>
+          </div>
+        </div>
+
+        {/* Bottom accent bar */}
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(to right, #00B894, #00CEC9)' }} />
       </div>
+
       <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <button onClick={downloadCard} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 24px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+        <button
+          onClick={downloadCard}
+          disabled={loading}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 24px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
+        >
           <Download style={{ width: 16, height: 16 }} />
           {loading ? 'Generating...' : 'Download ID Card'}
         </button>
