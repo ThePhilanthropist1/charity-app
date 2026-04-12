@@ -22,7 +22,7 @@ We're not just receiving tokens — we're building a future together. 500 CT eve
 Join me. Your seat at the table is waiting. 👇
 🔗 charitytoken.net
 
-#CharityToken #OwnYourFuture #Web3ForGood #CommunityGrowth #500CTMonthly`;
+#CharityToken #OwnYourFuture #Web3ForGood #CommunityGrowth`;
 
 export function MembershipCard({
   userId, fullName, email, profileImage, joinDate, country, isActivated = true
@@ -32,8 +32,6 @@ export function MembershipCard({
   const [cardWidth, setCardWidth] = useState(480);
   const [showShareModal, setShowShareModal] = useState(false);
   const [captionCopied, setCaptionCopied] = useState(false);
-  const [shareImageUrl, setShareImageUrl] = useState<string | null>(null);
-  const [generatingShare, setGeneratingShare] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -52,7 +50,6 @@ export function MembershipCard({
 
   const cardHeight = Math.round(cardWidth / RATIO);
 
-  // Generate canvas from the card element
   const generateCanvas = async () => {
     if (!cardRef.current) throw new Error('Card not found');
     const html2canvas = (await import('html2canvas')).default;
@@ -85,72 +82,25 @@ export function MembershipCard({
     } finally { setLoading(false); }
   };
 
-  const openShareModal = async () => {
-    setShowShareModal(true);
-    if (shareImageUrl) return; // already generated
-    setGeneratingShare(true);
-    try {
-      const canvas = await generateCanvas();
-      setShareImageUrl(canvas.toDataURL('image/png'));
-    } catch (e) {
-      console.error('Share image error:', e);
-    } finally { setGeneratingShare(false); }
-  };
-
   const copyCaption = () => {
     navigator.clipboard.writeText(SHARE_CAPTION);
     setCaptionCopied(true);
     setTimeout(() => setCaptionCopied(false), 2500);
   };
 
-  // Download image then open platform
-  const shareToplatform = async (platform: string) => {
-    const encodedCaption = encodeURIComponent(SHARE_CAPTION);
+  // Open platform directly — caption + site link only, no image download
+  const shareTo = (platform: 'whatsapp' | 'telegram' | 'twitter' | 'facebook') => {
+    const text    = encodeURIComponent(SHARE_CAPTION);
     const siteUrl = encodeURIComponent('https://charitytoken.net');
 
-    // Download card image first so user can attach manually on platforms that need it
-    if (shareImageUrl) {
-      const a = document.createElement('a');
-      a.href     = shareImageUrl;
-      a.download = 'charity-token-membership-' + userId + '.png';
-      a.click();
-      await new Promise(r => setTimeout(r, 400));
-    }
-
     const urls: Record<string, string> = {
-      twitter:   `https://twitter.com/intent/tweet?text=${encodedCaption}`,
-      facebook:  `https://www.facebook.com/sharer/sharer.php?u=${siteUrl}&quote=${encodedCaption}`,
-      whatsapp:  `https://wa.me/?text=${encodedCaption}`,
-      telegram:  `https://t.me/share/url?url=${siteUrl}&text=${encodedCaption}`,
-      linkedin:  `https://www.linkedin.com/sharing/share-offsite/?url=${siteUrl}`,
-      instagram: null as any, // Instagram has no web share URL — handled separately
+      whatsapp: `https://wa.me/?text=${text}`,
+      telegram: `https://t.me/share/url?url=${siteUrl}&text=${text}`,
+      twitter:  `https://twitter.com/intent/tweet?text=${text}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${siteUrl}&quote=${encodeURIComponent(SHARE_CAPTION)}`,
     };
 
-    if (platform === 'instagram') {
-      // Instagram doesn't support web share links — copy caption and show instructions
-      copyCaption();
-      return;
-    }
-
-    window.open(urls[platform], '_blank', 'noopener,noreferrer,width=600,height=500');
-  };
-
-  // Web Share API — works on mobile (native share sheet)
-  const nativeShare = async () => {
-    if (shareImageUrl && navigator.share) {
-      try {
-        // Convert dataURL to blob for native share
-        const res  = await fetch(shareImageUrl);
-        const blob = await res.blob();
-        const file = new File([blob], 'charity-token-membership.png', { type: 'image/png' });
-
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ title: 'My Charity Token Membership', text: SHARE_CAPTION, files: [file] });
-        } else {
-          await navigator.share({ title: 'My Charity Token Membership', text: SHARE_CAPTION, url: 'https://charitytoken.net' });
-        }
-      } catch (e) { /* user cancelled */ }
-    }
+    window.open(urls[platform], '_blank', 'noopener,noreferrer');
   };
 
   if (!profileImage) {
@@ -167,14 +117,51 @@ export function MembershipCard({
 
   const s = cardWidth / 480;
 
-  const socialPlatforms = [
-    { id: 'native',    label: 'Share',       emoji: '📤', bg: 'linear-gradient(135deg, #00CEC9, #00B894)', color: 'white',   show: typeof navigator !== 'undefined' && !!navigator.share },
-    { id: 'whatsapp',  label: 'WhatsApp',    emoji: '💬', bg: '#25D366',                                   color: 'white'  },
-    { id: 'telegram',  label: 'Telegram',    emoji: '✈️', bg: '#0088cc',                                   color: 'white'  },
-    { id: 'twitter',   label: 'X / Twitter', emoji: '🐦', bg: '#000000',                                   color: 'white'  },
-    { id: 'facebook',  label: 'Facebook',    emoji: '👥', bg: '#1877F2',                                   color: 'white'  },
-    { id: 'linkedin',  label: 'LinkedIn',    emoji: '💼', bg: '#0A66C2',                                   color: 'white'  },
-    { id: 'instagram', label: 'Instagram',   emoji: '📸', bg: 'linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)', color: 'white' },
+  const platforms = [
+    {
+      id: 'whatsapp' as const,
+      label: 'WhatsApp',
+      color: '#ffffff',
+      bg: '#25D366',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+      ),
+    },
+    {
+      id: 'telegram' as const,
+      label: 'Telegram',
+      color: '#ffffff',
+      bg: '#0088cc',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+          <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/>
+        </svg>
+      ),
+    },
+    {
+      id: 'twitter' as const,
+      label: 'X (Twitter)',
+      color: '#ffffff',
+      bg: '#000000',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+        </svg>
+      ),
+    },
+    {
+      id: 'facebook' as const,
+      label: 'Facebook',
+      color: '#ffffff',
+      bg: '#1877F2',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+        </svg>
+      ),
+    },
   ];
 
   return (
@@ -183,82 +170,86 @@ export function MembershipCard({
 
       {/* ── SHARE MODAL ── */}
       {showShareModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 300, backdropFilter: 'blur(8px)', padding: '0 0 0 0' }}>
-          <div style={{ width: '100%', maxWidth: 520, backgroundColor: '#0F1F35', borderRadius: '22px 22px 0 0', padding: '28px 24px 40px', boxShadow: '0 -20px 60px rgba(0,0,0,0.5)', maxHeight: '92vh', overflowY: 'auto' }}>
+        <div
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 300, backdropFilter: 'blur(8px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowShareModal(false); }}
+        >
+          <div style={{ width: '100%', maxWidth: 520, backgroundColor: '#0F1F35', borderRadius: '22px 22px 0 0', padding: '28px 24px 44px', boxShadow: '0 -20px 60px rgba(0,0,0,0.5)' }}>
 
-            {/* Modal header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            {/* Handle bar */}
+            <div style={{ width: 40, height: 4, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.15)', margin: '0 auto 20px' }} />
+
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
               <div>
-                <h3 style={{ fontSize: 18, fontWeight: 800, color: 'white', margin: 0 }}>Share Your Membership</h3>
+                <h3 style={{ fontSize: 18, fontWeight: 800, color: 'white', margin: 0 }}>Share Your Membership 🚀</h3>
                 <p style={{ fontSize: 12, color: '#8FA3BF', margin: '4px 0 0' }}>Invite others to join the movement</p>
               </div>
-              <button onClick={() => setShowShareModal(false)} style={{ width: 34, height: 34, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.08)', border: 'none', color: '#8FA3BF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button
+                onClick={() => setShowShareModal(false)}
+                style={{ width: 34, height: 34, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.08)', border: 'none', color: '#8FA3BF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
                 <X style={{ width: 16, height: 16 }} />
               </button>
             </div>
 
-            {/* Card preview */}
-            <div style={{ marginBottom: 20, borderRadius: 14, overflow: 'hidden', border: '1px solid rgba(0,206,201,0.2)' }}>
-              {generatingShare ? (
-                <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,206,201,0.05)', gap: 10 }}>
-                  <div style={{ width: 20, height: 20, border: '2px solid rgba(0,206,201,0.3)', borderTop: '2px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                  <p style={{ fontSize: 13, color: '#8FA3BF', margin: 0 }}>Preparing your card...</p>
-                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-                </div>
-              ) : shareImageUrl ? (
-                <img src={shareImageUrl} alt="Your membership card" style={{ width: '100%', display: 'block' }} />
-              ) : null}
-            </div>
-
-            {/* Caption box */}
-            <div style={{ marginBottom: 20, padding: '14px 16px', borderRadius: 14, backgroundColor: 'rgba(0,206,201,0.05)', border: '1px solid rgba(0,206,201,0.15)' }}>
+            {/* Caption preview */}
+            <div style={{ marginBottom: 22, padding: '14px 16px', borderRadius: 14, backgroundColor: 'rgba(0,206,201,0.05)', border: '1px solid rgba(0,206,201,0.15)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <p style={{ fontSize: 12, fontWeight: 700, color: '#00CEC9', margin: 0 }}>📝 Your Caption</p>
-                <button onClick={copyCaption} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 8, backgroundColor: captionCopied ? 'rgba(0,184,148,0.2)' : 'rgba(0,206,201,0.1)', border: `1px solid ${captionCopied ? 'rgba(0,184,148,0.4)' : 'rgba(0,206,201,0.25)'}`, color: captionCopied ? '#00B894' : '#67e8f9', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#00CEC9', margin: 0 }}>📝 Caption (auto-filled on each platform)</p>
+                <button
+                  onClick={copyCaption}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 8, backgroundColor: captionCopied ? 'rgba(0,184,148,0.2)' : 'rgba(0,206,201,0.1)', border: `1px solid ${captionCopied ? 'rgba(0,184,148,0.4)' : 'rgba(0,206,201,0.25)'}`, color: captionCopied ? '#00B894' : '#67e8f9', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                >
                   {captionCopied ? <Check style={{ width: 12, height: 12 }} /> : <Copy style={{ width: 12, height: 12 }} />}
                   {captionCopied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
-              <p style={{ fontSize: 12, color: '#8FA3BF', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line', maxHeight: 140, overflowY: 'auto' }}>{SHARE_CAPTION}</p>
+              <p style={{ fontSize: 11.5, color: '#8FA3BF', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line', maxHeight: 110, overflowY: 'auto' }}>
+                {SHARE_CAPTION}
+              </p>
             </div>
 
-            {/* Platform buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
-              {socialPlatforms.filter(p => p.id !== 'native').map((platform) => (
+            {/* Platform buttons — 2×2 grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {platforms.map((p) => (
                 <button
-                  key={platform.id}
-                  onClick={() => platform.id === 'native' ? nativeShare() : shareToplatform(platform.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 12, background: platform.bg, color: platform.color, fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                  key={p.id}
+                  onClick={() => shareTo(p.id)}
+                  style={{
+                    display:        'flex',
+                    alignItems:     'center',
+                    gap:            12,
+                    padding:        '14px 18px',
+                    borderRadius:   14,
+                    background:     p.bg,
+                    color:          p.color,
+                    fontWeight:     700,
+                    fontSize:       14,
+                    border:         'none',
+                    cursor:         'pointer',
+                    boxShadow:      '0 4px 16px rgba(0,0,0,0.2)',
+                    transition:     'opacity 0.15s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
                 >
-                  <span style={{ fontSize: 18 }}>{platform.emoji}</span>
-                  <span>{platform.label}</span>
+                  {p.icon}
+                  <span>{p.label}</span>
                 </button>
               ))}
             </div>
 
-            {/* Instagram note */}
-            <div style={{ padding: '12px 14px', borderRadius: 12, backgroundColor: 'rgba(253,29,29,0.06)', border: '1px solid rgba(253,29,29,0.15)', marginBottom: 16 }}>
-              <p style={{ fontSize: 12, color: '#fc8181', margin: 0, lineHeight: 1.6 }}>
-                <strong>📸 Instagram:</strong> Your card image is downloaded + caption copied automatically. Open Instagram, create a post, attach the image, paste the caption.
-              </p>
-            </div>
-
-            {/* Native share button — mobile only */}
-            {typeof navigator !== 'undefined' && navigator.share && (
-              <button
-                onClick={nativeShare}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,206,201,0.25)' }}
-              >
-                <Share2 style={{ width: 18, height: 18 }} />
-                Share via Phone (Image + Caption)
-              </button>
-            )}
+            <p style={{ fontSize: 11, color: '#4A5568', textAlign: 'center', marginTop: 18, marginBottom: 0, lineHeight: 1.6 }}>
+              Tap a platform to open the app directly with your caption pre-filled.
+            </p>
           </div>
         </div>
       )}
 
       {/* Wrapper — measures available width */}
       <div ref={wrapperRef} style={{ width: '100%', maxWidth: 480, margin: '0 auto' }}>
+
         {/* ── THE CARD ── */}
         <div
           ref={cardRef}
@@ -344,7 +335,6 @@ export function MembershipCard({
 
       {/* ── ACTION BUTTONS ── */}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-        {/* Download */}
         <button
           onClick={downloadCard}
           disabled={loading}
@@ -354,9 +344,8 @@ export function MembershipCard({
           {loading ? 'Saving...' : 'Download'}
         </button>
 
-        {/* Share */}
         <button
-          onClick={openShareModal}
+          onClick={() => setShowShareModal(true)}
           style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '12px 22px', borderRadius: 12, background: 'linear-gradient(135deg, #6C3FC8, #9B59B6)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', boxShadow: '0 8px 24px rgba(108,63,200,0.3)', flex: 1, maxWidth: 200, justifyContent: 'center' }}
         >
           <Share2 style={{ width: 16, height: 16 }} />
