@@ -22,11 +22,7 @@ const USDT_CONTRACT = '0x55d398326f99059ff775485246999027b3197955';
 // ── GET AUTH TOKEN FROM LOCALSTORAGE ─────────────────────────────────────────
 function getAuthToken(): string {
   try {
-    const stored = localStorage.getItem('auth_user');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return parsed.token || '';
-    }
+    return localStorage.getItem('auth_token') || '';
   } catch { }
   return '';
 }
