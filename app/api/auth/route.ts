@@ -9,6 +9,10 @@ const MAX_EMAIL_LENGTH = 254;
 const MAX_PASSWORD_LENGTH = 128;
 const MAX_USERNAME_LENGTH = 32;
 const MAX_BODY_SIZE = 10_000;
+
+// ── ACCOUNT LOCKOUT ───────────────────────────────────────────────────────────
+const MAX_FAILED_ATTEMPTS = 3;           // lock after 3 wrong passwords
+const LOCKOUT_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.charitytoken.net';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 
@@ -273,13 +277,69 @@ export async function POST(request: NextRequest) {
       const user = await getUserByEmail(email);
       if (!user) return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Invalid email or password' }, { status: 401 });
 
-      if (!verifyPassword(password, user.password_hash)) {
-        return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Invalid email or password' }, { status: 401 });
+      // ── LOCKOUT CHECK ────────────────────────────────────────────────────
+      if (user.locked_until) {
+        const lockedUntil = new Date(user.locked_until);
+        const now = new Date();
+        if (lockedUntil > now) {
+          const minutesLeft = Math.ceil((lockedUntil.getTime() - now.getTime()) / 60000);
+          const hoursLeft   = minutesLeft >= 60 ? Math.ceil(minutesLeft / 60) : null;
+          const timeMsg     = hoursLeft
+            ? `${hoursLeft} hour${hoursLeft > 1 ? 's' : ''}`
+            : `${minutesLeft} minute${minutesLeft > 1 ? 's' : ''}`;
+          return NextResponse.json<ApiResponse<null>>(
+            { success: false, error: `Account temporarily locked due to too many failed login attempts. Please try again in ${timeMsg}.` },
+            { status: 429 }
+          );
+        } else {
+          // Lockout expired — clear it
+          await supabaseAdmin
+            .from('users')
+            .update({ locked_until: null, failed_login_attempts: 0, last_failed_at: null })
+            .eq('id', user.id);
+          user.locked_until          = null;
+          user.failed_login_attempts = 0;
+        }
       }
 
-      await updateUser(user.id, { last_login: new Date().toISOString() } as any);
-      const jwtToken = generateToken(user.id);
+      // ── WRONG PASSWORD ───────────────────────────────────────────────────
+      if (!verifyPassword(password, user.password_hash)) {
+        const newAttempts = (user.failed_login_attempts || 0) + 1;
+        const updates: Record<string, any> = {
+          failed_login_attempts: newAttempts,
+          last_failed_at: new Date().toISOString(),
+        };
 
+        if (newAttempts >= MAX_FAILED_ATTEMPTS) {
+          // Lock the account for 24 hours
+          updates.locked_until = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString();
+          await supabaseAdmin.from('users').update(updates).eq('id', user.id);
+          return NextResponse.json<ApiResponse<null>>(
+            { success: false, error: `Too many failed attempts. Your account has been locked for 24 hours. Please try again tomorrow or use "Forgot password" to reset your password.` },
+            { status: 429 }
+          );
+        }
+
+        const attemptsLeft = MAX_FAILED_ATTEMPTS - newAttempts;
+        await supabaseAdmin.from('users').update(updates).eq('id', user.id);
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: `Invalid email or password. ${attemptsLeft} attempt${attemptsLeft > 1 ? 's' : ''} remaining before your account is locked.` },
+          { status: 401 }
+        );
+      }
+
+      // ── SUCCESS — reset failed attempts ──────────────────────────────────
+      await supabaseAdmin
+        .from('users')
+        .update({
+          last_login:            new Date().toISOString(),
+          failed_login_attempts: 0,
+          locked_until:          null,
+          last_failed_at:        null,
+        })
+        .eq('id', user.id);
+
+      const jwtToken = generateToken(user.id);
       const response = NextResponse.json<ApiResponse<{ user: typeof user; token: string }>>(
         { success: true, data: { user, token: jwtToken } },
         { status: 200 }
