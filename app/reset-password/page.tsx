@@ -1,9 +1,9 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, XCircle, Eye, EyeOff } from 'lucide-react';
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const router = useRouter();
   const params = useSearchParams();
   const [password, setPassword] = useState('');
@@ -51,7 +51,7 @@ export default function ResetPasswordPage() {
                   <h1 style={{ fontSize: 22, fontWeight: 900, color: 'white', marginBottom: 8 }}>Set New Password</h1>
                   <p style={{ fontSize: 13, color: '#8FA3BF' }}>Choose a strong password for your account.</p>
                 </div>
-                {['New Password', 'Confirm Password'].map((label, i) => (
+                {(['New Password', 'Confirm Password'] as const).map((label, i) => (
                   <div key={label} style={{ marginBottom: 16 }}>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8FA3BF', marginBottom: 6 }}>{label}</label>
                     <div style={{ position: 'relative' }}>
@@ -98,5 +98,18 @@ export default function ResetPasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 40, height: 40, border: '3px solid rgba(0,206,201,0.3)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    }>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }
