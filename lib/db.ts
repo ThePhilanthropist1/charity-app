@@ -2,19 +2,6 @@ import { createClient } from '@supabase/supabase-js';
 import type { User, KYCSubmission, BeneficiaryActivation, TokenDistribution, AdminAuditLog } from './types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-
-// ── TWO SEPARATE CLIENTS ──────────────────────────────────────────────────────
-//
-// supabaseAdmin  — uses SERVICE_ROLE_KEY. Server-side API routes ONLY.
-//                  Never imported in client components.
-//                  Bypasses RLS — has full database access.
-//
-// supabase       — uses ANON_KEY. Safe to use in client components.
-//                  Restricted by RLS policies.
-//
-// Rule: API routes (/app/api/**) use supabaseAdmin.
-//       Client components use supabase (anon).
-
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
@@ -159,16 +146,32 @@ export async function getBeneficiaryActivation(userId: string): Promise<Benefici
 }
 
 export async function createBeneficiaryActivation(activationData: Partial<BeneficiaryActivation>): Promise<BeneficiaryActivation | null> {
-  const { data, error } = await supabaseAdmin
+  // Step 1: Try a clean INSERT first
+  const { data: inserted, error: insertError } = await supabaseAdmin
     .from('beneficiary_activations')
-    .upsert(
-      [{ ...activationData, updated_at: new Date().toISOString() }],
-      { onConflict: 'user_id', ignoreDuplicates: false }
-    )
+    .insert([{ ...activationData, updated_at: new Date().toISOString() }])
     .select()
     .single();
-  if (error) { console.error('[db] createActivation:', error.message); return null; }
-  return data;
+
+  // INSERT succeeded
+  if (!insertError) return inserted;
+
+  // Step 2: If duplicate user_id (unique constraint violation), UPDATE instead
+  // Error code 23505 = unique_violation in PostgreSQL
+  if (insertError.code === '23505') {
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('beneficiary_activations')
+      .update({ ...activationData, updated_at: new Date().toISOString() })
+      .eq('user_id', activationData.user_id!)
+      .select()
+      .single();
+    if (updateError) { console.error('[db] createActivation update:', updateError.message); return null; }
+    return updated;
+  }
+
+  // Any other error
+  console.error('[db] createActivation insert:', insertError.message);
+  return null;
 }
 
 export async function updateBeneficiaryActivation(userId: string, updates: Partial<BeneficiaryActivation>): Promise<BeneficiaryActivation | null> {
