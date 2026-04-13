@@ -12,13 +12,26 @@ import {
   Copy, RefreshCw, X, Zap, Award, Search, XCircle
 } from 'lucide-react';
 
-const WALLET_ADDRESS = '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
+const WALLET_ADDRESS = process.env.NEXT_PUBLIC_WALLET_ADDRESS || '0x5d5A2B49c3F7AE576D93D3d636b37029b68E7e3e';
 const ACT_PER_ACTIVATION = 10;
 const ACT_INITIAL_BALANCE = 1000;
 const REFILL_COST_USD = 70;
 const REFILL_ACT_AMOUNT = 1000;
 const USDT_CONTRACT = '0x55d398326f99059ff775485246999027b3197955';
 
+// ── GET AUTH TOKEN FROM LOCALSTORAGE ─────────────────────────────────────────
+function getAuthToken(): string {
+  try {
+    const stored = localStorage.getItem('auth_user');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return parsed.token || '';
+    }
+  } catch { }
+  return '';
+}
+
+// ── PHILANTHROPIST RECORD ────────────────────────────────────────────────────
 async function getPhilRecord(userId: string) {
   const { data: byUserId } = await supabase.from('philanthropists').select('*').eq('user_id', userId).maybeSingle();
   if (byUserId) return byUserId;
@@ -26,26 +39,49 @@ async function getPhilRecord(userId: string) {
   return byId || null;
 }
 
+// ── DEDUCT ACT BALANCE ────────────────────────────────────────────────────────
 async function deductACT(userId: string, currentBalance: number) {
   const record = await getPhilRecord(userId);
   if (!record) throw new Error('Philanthropist record not found for user: ' + userId);
   const newBalance = currentBalance - ACT_PER_ACTIVATION;
-  const { error } = await supabase.from('philanthropists').update({ act_balance: newBalance, updated_at: new Date().toISOString() }).eq('id', record.id);
+  const { error } = await supabase
+    .from('philanthropists')
+    .update({ act_balance: newBalance, updated_at: new Date().toISOString() })
+    .eq('id', record.id);
   if (error) throw error;
   return { newBalance };
 }
 
-async function activateBeneficiary(targetUserId: string, philanthropistId: string): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
-  const { data: existing } = await supabase.from('beneficiary_activations').select('id, payment_status').eq('user_id', targetUserId).maybeSingle();
-  if (existing?.payment_status === 'verified') return { success: false, alreadyActive: true };
-  if (existing) {
-    const { error } = await supabase.from('beneficiary_activations').update({ payment_status: 'verified', activation_method: 'philanthropist', philanthropist_id: philanthropistId, activated_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('user_id', targetUserId);
-    if (error) return { success: false, alreadyActive: false, error: error.message };
-  } else {
-    const { error } = await supabase.from('beneficiary_activations').insert({ user_id: targetUserId, payment_status: 'verified', activation_method: 'philanthropist', philanthropist_id: philanthropistId, activated_at: new Date().toISOString(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-    if (error) return { success: false, alreadyActive: false, error: error.message };
+// ── ACTIVATE BENEFICIARY — via API route (uses supabaseAdmin server-side) ────
+async function activateBeneficiary(
+  targetUserId: string,
+  _philanthropistId: string
+): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
+  const token = getAuthToken();
+  if (!token) return { success: false, alreadyActive: false, error: 'Not authenticated. Please log in again.' };
+
+  try {
+    const res = await fetch('/api/philanthropist-activate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ targetUserId, action: 'activate' }),
+    });
+
+    const data = await res.json();
+
+    if (res.status === 409 && data.error === 'already_active') {
+      return { success: false, alreadyActive: true };
+    }
+    if (!data.success) {
+      return { success: false, alreadyActive: false, error: data.error || 'Activation failed' };
+    }
+    return { success: true, alreadyActive: false };
+  } catch (e: any) {
+    return { success: false, alreadyActive: false, error: e.message || 'Network error' };
   }
-  return { success: true, alreadyActive: false };
 }
 
 export default function PhilanthropistDashboardPage() {
@@ -141,8 +177,17 @@ export default function PhilanthropistDashboardPage() {
     if (!targetUserId || !user?.id) return;
     setRejecting(targetUserId);
     try {
-      const { error } = await supabase.from('beneficiary_activations').update({ payment_status: 'rejected', philanthropist_id: user.id, updated_at: new Date().toISOString() }).eq('user_id', targetUserId);
-      if (error) throw error;
+      const token = getAuthToken();
+      const res = await fetch('/api/philanthropist-activate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ targetUserId, action: 'reject' }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Rejection failed');
       const name = item.users?.full_name || item.users?.email || 'User';
       showToast(`${name} has been rejected. No ACT was deducted.`, 'info');
       await loadAll();
@@ -181,7 +226,12 @@ export default function PhilanthropistDashboardPage() {
         )}
 
         {showRefill && (
-          <RefillModal onClose={() => setShowRefill(false)} onSuccess={(newBal) => { setActBalance(newBal); setShowRefill(false); showToast(`✅ ACT refilled! +${REFILL_ACT_AMOUNT} ACT. New balance: ${newBal} ACT`, 'success'); loadAll(); }} userId={user?.id || ''} currentBalance={actBalance} />
+          <RefillModal
+            onClose={() => setShowRefill(false)}
+            onSuccess={(newBal) => { setActBalance(newBal); setShowRefill(false); showToast(`✅ ACT refilled! +${REFILL_ACT_AMOUNT} ACT. New balance: ${newBal} ACT`, 'success'); loadAll(); }}
+            userId={user?.id || ''}
+            currentBalance={actBalance}
+          />
         )}
 
         <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none' }}>
@@ -421,7 +471,12 @@ function ActivateByEmail({ userId, actBalance, onSuccess, onAlreadyActive, onErr
   );
 }
 
-function RefillModal({ onClose, onSuccess, userId, currentBalance }: { onClose: () => void; onSuccess: (newBalance: number) => void; userId: string; currentBalance: number; }) {
+function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
+  onClose: () => void;
+  onSuccess: (newBalance: number) => void;
+  userId: string;
+  currentBalance: number;
+}) {
   const [txHash, setTxHash] = useState('');
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
