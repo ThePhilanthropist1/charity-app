@@ -1,6 +1,7 @@
 ﻿'use client';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase-client';
+import { verifyToken } from '@/lib/auth';
 
 type User = {
   id: string;
@@ -13,6 +14,7 @@ type User = {
   country?: string;
   phone?: string;
   profile_picture?: string;
+  email_verified?: boolean;
   [key: string]: any;
 };
 
@@ -34,16 +36,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loadUserFromStorage = async () => {
     try {
+      // Support both HttpOnly cookie (server) and localStorage (fallback)
       const token = localStorage.getItem('auth_token');
       const storedUser = localStorage.getItem('auth_user');
+
       if (token && storedUser) {
         const parsedUser = JSON.parse(storedUser);
         setUser(parsedUser);
+
+        // Refresh from DB
         const { data: freshUser } = await supabase
           .from('users')
           .select('*')
           .eq('id', parsedUser.id)
           .single();
+
         if (freshUser) {
           setUser(freshUser);
           localStorage.setItem('auth_user', JSON.stringify(freshUser));
@@ -67,9 +74,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleSignOut = async () => {
+    // Clear localStorage
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
     setUser(null);
+
+    // Clear HttpOnly cookie via API
+    try {
+      await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout' }),
+      });
+    } catch { /* silent */ }
+
     await supabase.auth.signOut().catch(() => {});
     window.location.href = '/login';
   };
@@ -79,11 +97,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const storedUser = localStorage.getItem('auth_user');
       if (!storedUser) return;
       const parsedUser = JSON.parse(storedUser);
+
       const { data: freshUser } = await supabase
         .from('users')
         .select('*')
         .eq('id', parsedUser.id)
         .single();
+
       if (freshUser) {
         setUser(freshUser);
         localStorage.setItem('auth_user', JSON.stringify(freshUser));

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LogIn, FileText, Eye, EyeOff } from 'lucide-react';
 import Image from 'next/image';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,10 +27,6 @@ export default function LoginPage() {
       if (result.success) {
         localStorage.setItem('auth_token', result.data.token);
         localStorage.setItem('auth_user', JSON.stringify(result.data.user));
-        // Hard redirect forces a full page reload so the auth context
-        // hydrates from localStorage BEFORE the dashboard mounts.
-        // This is what prevents the redirect loop — router.push() was
-        // navigating before the auth context had read the new session.
         window.location.href = '/beneficiary-dashboard';
       } else {
         setError(result.error || 'Invalid email or password');
@@ -112,10 +109,14 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              {/* FORGOT PASSWORD LINK */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
-                <button type="button" style={{ fontSize: 12, color: '#67e8f9', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                <Link
+                  href="/forgot-password"
+                  style={{ fontSize: 12, color: '#67e8f9', textDecoration: 'none', fontWeight: 600 }}
+                >
                   Forgot password?
-                </button>
+                </Link>
               </div>
 
               <button
