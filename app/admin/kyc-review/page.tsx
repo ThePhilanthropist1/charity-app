@@ -49,13 +49,20 @@ export default function AdminKYCReviewPage() {
   const loadKYCSubmissions = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('auth_token') || '';
-      const res = await fetch('/api/kyc', {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setKycSubmissions(data.data || []);
-    } catch (e) { console.error(e); }
+      // Read directly via anon client — kyc_select_all RLS allows anon SELECT
+      const { createClient } = await import('@supabase/supabase-js');
+      const sb = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+      const { data, error } = await sb
+        .from('kyc_submissions')
+        .select('*, users:user_id(full_name, email, country, phone)')
+        .eq('status', 'pending')
+        .order('submitted_at', { ascending: true });
+      if (error) throw error;
+      setKycSubmissions(data || []);
+    } catch (e) { console.error('[kyc-review] load error:', e); }
     finally { setLoading(false); }
   };
 
