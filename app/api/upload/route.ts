@@ -5,7 +5,7 @@ import type { ApiResponse } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
-    // ── AUTH ─────────────────────────────────────────────────────────────────
+    // ── AUTH ──────────────────────────────────────────────────────────────────
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json<ApiResponse<null>>(
@@ -24,11 +24,20 @@ export async function POST(request: NextRequest) {
     }
 
     // ── PARSE FORM DATA ───────────────────────────────────────────────────────
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch (e) {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'Failed to parse form data. Please try again.' },
+        { status: 400 }
+      );
+    }
+
     const file = formData.get('file') as File | null;
     const type = (formData.get('type') as string | null) || 'government_id';
 
-    if (!file) {
+    if (!file || file.size === 0) {
       return NextResponse.json<ApiResponse<null>>(
         { success: false, error: 'No file provided' },
         { status: 400 }
@@ -55,43 +64,32 @@ export async function POST(request: NextRequest) {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const filename = `kyc/${userId}/${type}_${Date.now()}.${ext}`;
 
-    // ── UPLOAD TO SUPABASE STORAGE ────────────────────────────────────────────
+    // ── READ FILE — use Uint8Array, works in all runtimes including Edge ──────
     const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const uint8Array = new Uint8Array(arrayBuffer);
 
+    // ── UPLOAD TO SUPABASE STORAGE ────────────────────────────────────────────
     const { error: uploadError } = await supabaseAdmin.storage
       .from('kyc-documents')
-      .upload(filename, buffer, {
+      .upload(filename, uint8Array, {
         contentType: file.type,
         upsert: true,
       });
 
     if (uploadError) {
       console.error('[upload] Supabase storage error:', uploadError.message);
-
-      // Bucket might not exist — try to create it
-      if (uploadError.message?.includes('Bucket not found') ||
-          uploadError.message?.includes('bucket') ||
-          uploadError.message?.includes('not found')) {
-        return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Storage bucket not configured. Please contact support.' },
-          { status: 500 }
-        );
-      }
-
       return NextResponse.json<ApiResponse<null>>(
         { success: false, error: 'Upload failed: ' + uploadError.message },
         { status: 500 }
       );
     }
 
-    // ── GET URL ───────────────────────────────────────────────────────────────
-    // Use signed URL (60 min) since bucket is private
-    const { data: signedData, error: signedError } = await supabaseAdmin.storage
+    // ── GET SIGNED URL (private bucket) ───────────────────────────────────────
+    const { data: signedData } = await supabaseAdmin.storage
       .from('kyc-documents')
       .createSignedUrl(filename, 60 * 60); // 1 hour
 
-    // Fallback to public URL if signed fails
+    // Fallback to public URL if signed URL fails
     let url = '';
     if (signedData?.signedUrl) {
       url = signedData.signedUrl;
@@ -110,8 +108,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     console.error('[upload] Unhandled error:', msg);
+    // Always return JSON — never let a plain text error reach the client
     return NextResponse.json<ApiResponse<null>>(
-      { success: false, error: 'Upload failed. Please try again.' },
+      { success: false, error: 'Upload failed: ' + msg },
       { status: 500 }
     );
   }
