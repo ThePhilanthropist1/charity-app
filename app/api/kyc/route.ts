@@ -11,7 +11,7 @@ function getAuth(request: NextRequest): { userId: string; valid: boolean } {
   return verifyToken(token);
 }
 
-// ── POST — submit KYC ─────────────────────────────────────────────────────────
+// ── POST — submit KYC / get status ───────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     const { userId, valid } = getAuth(request);
@@ -22,67 +22,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { action, government_id_type, government_id_url, face_capture_url } = body;
-
-    if (action === 'submit') {
-      if (!government_id_type || !government_id_url || !face_capture_url) {
-        return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Missing required fields: ID type, ID document, and face capture are all required.' },
-          { status: 400 }
-        );
-      }
-
-      // Check if already has pending or approved submission
-      const { data: existing } = await supabaseAdmin
-        .from('kyc_submissions')
-        .select('id, status')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existing?.status === 'pending') {
-        return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'You already have a pending KYC submission. Please wait for admin review.' },
-          { status: 409 }
-        );
-      }
-
-      if (existing?.status === 'approved') {
-        return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Your KYC has already been approved.' },
-          { status: 409 }
-        );
-      }
-
-      const { data: submission, error } = await supabaseAdmin
-        .from('kyc_submissions')
-        .insert([{
-          user_id:            userId,
-          government_id_type,
-          government_id_url,
-          face_capture_url,
-          status:             'pending',
-          submitted_at:       new Date().toISOString(),
-        }])
-        .select()
-        .single();
-
-      if (error || !submission) {
-        console.error('[kyc] Insert error:', error?.message);
-        return NextResponse.json<ApiResponse<null>>(
-          { success: false, error: 'Failed to submit KYC. Please try again.' },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json<ApiResponse<typeof submission>>(
-        { success: true, data: submission },
-        { status: 201 }
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json<ApiResponse<null>>(
+        { success: false, error: 'Invalid request body.' },
+        { status: 400 }
       );
     }
 
+    const { action, government_id_type, government_id_url, face_capture_url } = body;
+
+    // ── GET ───────────────────────────────────────────────────────────────────
     if (action === 'get') {
       const { data: submission } = await supabaseAdmin
         .from('kyc_submissions')
@@ -98,6 +50,83 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── SUBMIT ────────────────────────────────────────────────────────────────
+    if (action === 'submit') {
+      if (!government_id_type || !government_id_url || !face_capture_url) {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'Missing required fields: ID type, ID document, and face capture are all required.' },
+          { status: 400 }
+        );
+      }
+
+      // Check for existing submission
+      const { data: existing, error: fetchError } = await supabaseAdmin
+        .from('kyc_submissions')
+        .select('id, status')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('[kyc] Fetch existing error:', fetchError.message);
+        // Don't block — continue with insert
+      }
+
+      if (existing?.status === 'pending') {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'You already have a pending KYC submission. Please wait for admin review.' },
+          { status: 409 }
+        );
+      }
+
+      if (existing?.status === 'approved') {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'Your KYC has already been approved.' },
+          { status: 409 }
+        );
+      }
+
+      // Insert new submission
+      const insertPayload = {
+        user_id:            userId,
+        government_id_type,
+        government_id_url,
+        face_capture_url,
+        status:             'pending',
+        submitted_at:       new Date().toISOString(),
+      };
+
+      console.log('[kyc] Inserting submission for user:', userId);
+
+      const { data: submission, error: insertError } = await supabaseAdmin
+        .from('kyc_submissions')
+        .insert([insertPayload])
+        .select()
+        .single();
+
+      if (insertError) {
+        // Return the EXACT Supabase error so we can diagnose it
+        console.error('[kyc] Insert failed:', insertError.code, insertError.message, insertError.details);
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: `DB error (${insertError.code}): ${insertError.message}` },
+          { status: 500 }
+        );
+      }
+
+      if (!submission) {
+        return NextResponse.json<ApiResponse<null>>(
+          { success: false, error: 'Insert returned no data. Please try again.' },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json<ApiResponse<typeof submission>>(
+        { success: true, data: submission },
+        { status: 201 }
+      );
+    }
+
     return NextResponse.json<ApiResponse<null>>(
       { success: false, error: 'Invalid action' },
       { status: 400 }
@@ -105,9 +134,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[kyc] POST error:', msg);
+    console.error('[kyc] POST unhandled error:', msg);
     return NextResponse.json<ApiResponse<null>>(
-      { success: false, error: 'Internal server error' },
+      { success: false, error: 'Server error: ' + msg },
       { status: 500 }
     );
   }
@@ -148,7 +177,7 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       return NextResponse.json<ApiResponse<null>>(
-        { success: false, error: 'Failed to fetch submissions' },
+        { success: false, error: 'Failed to fetch submissions: ' + error.message },
         { status: 500 }
       );
     }
@@ -204,7 +233,6 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Get the submission to find user_id
     const { data: submission } = await supabaseAdmin
       .from('kyc_submissions')
       .select('user_id')
@@ -230,18 +258,12 @@ export async function PATCH(request: NextRequest) {
         );
       }
 
-      // Promote user to philanthropist
       if (submission?.user_id) {
         await supabaseAdmin
           .from('users')
-          .update({
-            role:       'philanthropist',
-            is_active:  true,
-            updated_at: new Date().toISOString(),
-          })
+          .update({ role: 'philanthropist', is_active: true, updated_at: new Date().toISOString() })
           .eq('id', submission.user_id);
 
-        // Create philanthropist record with initial ACT balance
         const { data: existingPhil } = await supabaseAdmin
           .from('philanthropists')
           .select('id')
@@ -258,7 +280,6 @@ export async function PATCH(request: NextRequest) {
         }
       }
 
-      // Audit log
       await supabaseAdmin.from('admin_audit_logs').insert([{
         admin_user_id:  userId,
         action_type:    'kyc_approved',

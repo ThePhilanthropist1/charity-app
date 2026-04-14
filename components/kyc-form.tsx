@@ -1,55 +1,120 @@
 ﻿'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Camera, Upload, Shield, FileText, Eye, Send, X, Clock, XCircle } from 'lucide-react';
-// use-charity-api hooks not needed — direct fetch used
+import { AlertCircle, CheckCircle, Camera, Upload, Shield, FileText, Eye, Send, X, Clock, XCircle, RefreshCw } from 'lucide-react';
 
+// ── DIRECT API HELPERS — no hooks, always fresh token ────────────────────────
+async function uploadFile(file: File, type: 'government_id' | 'face_capture'): Promise<{ success: boolean; url?: string; error?: string }> {
+  const token = localStorage.getItem('auth_token') || '';
+  if (!token) return { success: false, error: 'Not authenticated. Please log in again.' };
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('type', type);
+
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    body: formData,
+  });
+
+  // Always parse as text first to avoid JSON parse errors
+  const text = await response.text();
+  try {
+    const data = JSON.parse(text);
+    if (data.success) return { success: true, url: data.data?.url };
+    return { success: false, error: data.error || 'Upload failed. Please try again.' };
+  } catch {
+    console.error('[upload] Non-JSON response:', text.slice(0, 200));
+    return { success: false, error: 'Server error during upload. Please try again.' };
+  }
+}
+
+async function submitKYC(
+  governmentIdType: string,
+  governmentIdUrl: string,
+  faceCaptureUrl: string
+): Promise<{ success: boolean; error?: string }> {
+  const token = localStorage.getItem('auth_token') || '';
+  if (!token) return { success: false, error: 'Not authenticated. Please log in again.' };
+
+  const response = await fetch('/api/kyc', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      action: 'submit',
+      government_id_type: governmentIdType,
+      government_id_url: governmentIdUrl,
+      face_capture_url: faceCaptureUrl,
+    }),
+  });
+
+  const text = await response.text();
+  try {
+    const data = JSON.parse(text);
+    if (data.success) return { success: true };
+    return { success: false, error: data.error || 'Submission failed. Please try again.' };
+  } catch {
+    console.error('[kyc] Non-JSON response:', text.slice(0, 200));
+    return { success: false, error: 'Server error during submission. Please try again.' };
+  }
+}
+
+async function getExistingSubmission(): Promise<any> {
+  const token = localStorage.getItem('auth_token') || '';
+  if (!token) return null;
+  try {
+    const response = await fetch('/api/kyc', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: 'get' }),
+    });
+    const text = await response.text();
+    const data = JSON.parse(text);
+    return data.success && data.data ? data.data : null;
+  } catch { return null; }
+}
+
+// ── COMPONENT ─────────────────────────────────────────────────────────────────
 export function KYCForm() {
   const videoRef  = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [step, setStep]                         = useState(1);
-  const [governmentIdType, setGovernmentIdType] = useState('passport');
-  const [governmentIdFile, setGovernmentIdFile] = useState<File | null>(null);
+  const [step, setStep]                             = useState(1);
+  const [governmentIdType, setGovernmentIdType]     = useState('passport');
+  const [governmentIdFile, setGovernmentIdFile]     = useState<File | null>(null);
   const [governmentIdPreview, setGovernmentIdPreview] = useState('');
-  const [governmentIdUrl, setGovernmentIdUrl]   = useState('');
+  const [governmentIdUrl, setGovernmentIdUrl]       = useState('');
   const [faceCaptureDataUrl, setFaceCaptureDataUrl] = useState('');
-  const [faceCaptureUrl, setFaceCaptureUrl]     = useState('');
-  const [cameraActive, setCameraActive]         = useState(false);
-  const [cameraReady, setCameraReady]           = useState(false);
-  const [loading, setLoading]                   = useState(false);
-  const [error, setError]                       = useState('');
-  const [success, setSuccess]                   = useState(false);
+  const [faceCaptureUrl, setFaceCaptureUrl]         = useState('');
+  const [cameraActive, setCameraActive]             = useState(false);
+  const [cameraReady, setCameraReady]               = useState(false);
+  const [loading, setLoading]                       = useState(false);
+  const [error, setError]                           = useState('');
+  const [success, setSuccess]                       = useState(false);
   const [existingSubmission, setExistingSubmission] = useState<any>(null);
-  const [checkingStatus, setCheckingStatus]     = useState(true);
+  const [checkingStatus, setCheckingStatus]         = useState(true);
+  const [uploadProgress, setUploadProgress]         = useState('');
   const streamRef = useRef<MediaStream | null>(null);
-
-
 
   // ── CHECK EXISTING SUBMISSION ON MOUNT ────────────────────────────────────
   useEffect(() => {
-    const checkExisting = async () => {
+    const check = async () => {
       setCheckingStatus(true);
-      try {
-        const token = localStorage.getItem('auth_token') || '';
-        const res = await fetch('/api/kyc', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ action: 'get' }),
-        });
-        const data = await res.json();
-        if (data.success && data.data) {
-          setExistingSubmission(data.data);
-        }
-      } catch { /* silent */ }
-      finally { setCheckingStatus(false); }
+      const sub = await getExistingSubmission();
+      if (sub) setExistingSubmission(sub);
+      setCheckingStatus(false);
     };
-    checkExisting();
+    check();
   }, []);
 
+  // ── CAMERA ────────────────────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
     setError(''); setCameraReady(false);
     try {
@@ -65,7 +130,7 @@ export function KYCForm() {
           videoRef.current.onloadedmetadata = () => {
             videoRef.current?.play()
               .then(() => setCameraReady(true))
-              .catch(() => setError('Camera started but could not display. Try clicking Start Camera again.'));
+              .catch(() => setError('Camera started but could not display. Try again.'));
           };
         }
       }, 100);
@@ -73,24 +138,22 @@ export function KYCForm() {
       if (err.name === 'NotAllowedError')
         setError('Camera permission denied. Please allow camera access in your browser settings.');
       else if (err.name === 'NotFoundError')
-        setError('No camera found. Please connect a camera and try again.');
+        setError('No camera found on this device.');
       else
         setError('Cannot access camera: ' + (err.message || 'Unknown error'));
     }
   }, []);
 
   const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraActive(false); setCameraReady(false);
   }, []);
 
   const captureFace = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
-    const video  = videoRef.current;
+    const video = videoRef.current;
     const canvas = canvasRef.current;
     canvas.width  = video.videoWidth  || 1280;
     canvas.height = video.videoHeight || 720;
@@ -102,112 +165,77 @@ export function KYCForm() {
     }
   }, [stopCamera]);
 
+  // ── UPLOAD GOVERNMENT ID ──────────────────────────────────────────────────
   const handleGovernmentIdUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { setError('File too large. Maximum size is 10MB.'); return; }
-    setGovernmentIdFile(file); setError('');
+
+    setGovernmentIdFile(file); setError(''); setUploadProgress('Uploading ID document...');
+
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = ev => setGovernmentIdPreview(ev.target?.result as string);
       reader.readAsDataURL(file);
-    } else {
-      setGovernmentIdPreview('');
     }
+
     setLoading(true);
     try {
-      const token = localStorage.getItem('auth_token') || '';
-      if (!token) { setError('Not authenticated. Please log in again.'); setLoading(false); return; }
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('type', 'government_id');
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData,
-      });
-      const result = await response.json();
-      if (result.success) {
-        setGovernmentIdUrl(result.data.url);
+      const result = await uploadFile(file, 'government_id');
+      if (result.success && result.url) {
+        setGovernmentIdUrl(result.url);
+        setUploadProgress('');
         setStep(2);
       } else {
-        setError(result.error || 'Failed to upload ID document. Please try again.');
-        setGovernmentIdFile(null); setGovernmentIdPreview('');
+        setError(result.error || 'Upload failed. Please try again.');
+        setGovernmentIdFile(null); setGovernmentIdPreview(''); setUploadProgress('');
       }
     } catch (e: any) {
       setError(e?.message || 'Upload failed. Please try again.');
+      setUploadProgress('');
     } finally { setLoading(false); }
   };
 
+  // ── UPLOAD FACE CAPTURE ───────────────────────────────────────────────────
   const handleFaceCaptureUpload = async () => {
     if (!faceCaptureDataUrl) { setError('Please capture a photo first'); return; }
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setUploadProgress('Uploading face photo...');
     try {
-      const token = localStorage.getItem('auth_token') || '';
-      if (!token) { setError('Not authenticated. Please log in again.'); setLoading(false); return; }
       const res  = await fetch(faceCaptureDataUrl);
       const blob = await res.blob();
       const file = new File([blob], 'face_capture.jpg', { type: 'image/jpeg' });
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('type', 'face_capture');
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData,
-      });
-      const result = await response.json();
-      if (result.success) {
-        setFaceCaptureUrl(result.data.url);
+      const result = await uploadFile(file, 'face_capture');
+      if (result.success && result.url) {
+        setFaceCaptureUrl(result.url);
+        setUploadProgress('');
         setStep(3);
       } else {
         setError(result.error || 'Failed to upload face photo. Please try again.');
+        setUploadProgress('');
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to process face capture. Please try again.');
+      setUploadProgress('');
     } finally { setLoading(false); }
   };
 
+  // ── SUBMIT ────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!governmentIdUrl || !faceCaptureUrl) {
       setError('Missing required documents. Please complete all steps.');
       return;
     }
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setUploadProgress('Submitting your KYC...');
     try {
-      // Read token fresh — never rely on hook-captured token
-      const token = localStorage.getItem('auth_token') || '';
-      if (!token) {
-        setError('Not authenticated. Please log in again.');
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch('/api/kyc', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action:             'submit',
-          government_id_type: governmentIdType,
-          government_id_url:  governmentIdUrl,
-          face_capture_url:   faceCaptureUrl,
-        }),
-      });
-
-      const result = await response.json();
-
+      const result = await submitKYC(governmentIdType, governmentIdUrl, faceCaptureUrl);
       if (result.success) {
-        setSuccess(true);
-        setStep(4);
+        setSuccess(true); setStep(4);
       } else {
         setError(result.error || 'Submission failed. Please try again.');
       }
     } catch (e: any) {
       setError(e?.message || 'Network error. Please check your connection and try again.');
-    } finally { setLoading(false); }
+    } finally { setLoading(false); setUploadProgress(''); }
   };
 
   const steps = [
@@ -217,7 +245,7 @@ export function KYCForm() {
     { num: 4, label: 'Done',          icon: <CheckCircle style={{ width: 15, height: 15 }} /> },
   ];
 
-  // ── LOADING STATE ─────────────────────────────────────────────────────────
+  // ── LOADING ───────────────────────────────────────────────────────────────
   if (checkingStatus) {
     return (
       <div style={{ maxWidth: 600, margin: '0 auto', textAlign: 'center', padding: '60px 20px' }}>
@@ -230,37 +258,11 @@ export function KYCForm() {
   // ── EXISTING SUBMISSION STATUS ────────────────────────────────────────────
   if (existingSubmission && !success) {
     const status = existingSubmission.status;
-
-    const statusConfig = {
-      pending: {
-        icon: <Clock style={{ width: 44, height: 44, color: '#ffc107' }} />,
-        bg: 'rgba(255,193,7,0.15)',
-        border: 'rgba(255,193,7,0.3)',
-        title: 'KYC Under Review',
-        color: '#ffc107',
-        message: 'Your KYC documents have been submitted and are currently under review. Our team will verify your identity within 24–48 hours. You will be notified once approved.',
-      },
-      approved: {
-        icon: <CheckCircle style={{ width: 44, height: 44, color: '#00B894' }} />,
-        bg: 'rgba(0,184,148,0.15)',
-        border: 'rgba(0,184,148,0.3)',
-        title: 'KYC Approved!',
-        color: '#00B894',
-        message: 'Your identity has been verified. You are now an approved Philanthropist. Go to your Philanthropist Dashboard to start activating beneficiaries.',
-      },
-      rejected: {
-        icon: <XCircle style={{ width: 44, height: 44, color: '#ff6b6b' }} />,
-        bg: 'rgba(255,107,107,0.15)',
-        border: 'rgba(255,107,107,0.3)',
-        title: 'KYC Not Approved',
-        color: '#ff6b6b',
-        message: existingSubmission.rejection_reason
-          ? `Your submission was not approved. Reason: ${existingSubmission.rejection_reason}`
-          : 'Your submission was not approved. Please resubmit with clearer documents.',
-      },
-    } as const;
-
-    const cfg = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
+    const cfg = {
+      pending:  { icon: <Clock style={{ width: 44, height: 44, color: '#ffc107' }} />, bg: 'rgba(255,193,7,0.15)', border: 'rgba(255,193,7,0.3)', title: 'KYC Under Review', color: '#ffc107', message: 'Your documents have been submitted and are under review. Our team will verify your identity within 24–48 hours.' },
+      approved: { icon: <CheckCircle style={{ width: 44, height: 44, color: '#00B894' }} />, bg: 'rgba(0,184,148,0.15)', border: 'rgba(0,184,148,0.3)', title: 'KYC Approved!', color: '#00B894', message: 'Your identity has been verified. You are now an approved Philanthropist.' },
+      rejected: { icon: <XCircle style={{ width: 44, height: 44, color: '#ff6b6b' }} />, bg: 'rgba(255,107,107,0.15)', border: 'rgba(255,107,107,0.3)', title: 'KYC Not Approved', color: '#ff6b6b', message: existingSubmission.rejection_reason ? `Reason: ${existingSubmission.rejection_reason}` : 'Please resubmit with clearer documents.' },
+    }[status as 'pending' | 'approved' | 'rejected'] || { icon: <Clock style={{ width: 44, height: 44, color: '#ffc107' }} />, bg: 'rgba(255,193,7,0.15)', border: 'rgba(255,193,7,0.3)', title: 'KYC Pending', color: '#ffc107', message: 'Your submission is being processed.' };
 
     return (
       <div style={{ maxWidth: 600, margin: '0 auto', textAlign: 'center', padding: '50px 32px', backgroundColor: '#0F1F35', border: `1px solid ${cfg.border}`, borderRadius: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}>
@@ -269,29 +271,17 @@ export function KYCForm() {
         </div>
         <h2 style={{ fontSize: 26, fontWeight: 800, color: 'white', marginBottom: 12 }}>{cfg.title}</h2>
         <p style={{ fontSize: 14, color: '#8FA3BF', lineHeight: 1.8, marginBottom: 32 }}>{cfg.message}</p>
-
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => window.location.href = '/beneficiary-dashboard'}
-            style={{ padding: '13px 28px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}
-          >
+          <button onClick={() => window.location.href = '/beneficiary-dashboard'} style={{ padding: '13px 28px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
             Back to Dashboard
           </button>
-
           {status === 'approved' && (
-            <button
-              onClick={() => window.location.href = '/philanthropist/dashboard'}
-              style={{ padding: '13px 28px', borderRadius: 12, background: 'linear-gradient(to right, #00B894, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}
-            >
+            <button onClick={() => window.location.href = '/philanthropist/dashboard'} style={{ padding: '13px 28px', borderRadius: 12, background: 'linear-gradient(to right, #00B894, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
               Philanthropist Dashboard
             </button>
           )}
-
           {status === 'rejected' && (
-            <button
-              onClick={() => setExistingSubmission(null)}
-              style={{ padding: '13px 28px', borderRadius: 12, background: 'rgba(255,107,107,0.15)', color: '#ff6b6b', fontWeight: 700, fontSize: 14, border: '1px solid rgba(255,107,107,0.3)', cursor: 'pointer' }}
-            >
+            <button onClick={() => setExistingSubmission(null)} style={{ padding: '13px 28px', borderRadius: 12, background: 'rgba(255,107,107,0.15)', color: '#ff6b6b', fontWeight: 700, fontSize: 14, border: '1px solid rgba(255,107,107,0.3)', cursor: 'pointer' }}>
               Resubmit KYC
             </button>
           )}
@@ -353,6 +343,15 @@ export function KYCForm() {
         ))}
       </div>
 
+      {/* Upload progress */}
+      {uploadProgress && (
+        <div style={{ display: 'flex', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(0,206,201,0.08)', border: '1px solid rgba(0,206,201,0.2)', borderRadius: 12, alignItems: 'center' }}>
+          <div style={{ width: 16, height: 16, border: '2px solid rgba(0,206,201,0.3)', borderTop: '2px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+          <p style={{ fontSize: 13, color: '#00CEC9', margin: 0 }}>{uploadProgress}</p>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div style={{ display: 'flex', gap: 10, padding: '14px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 12 }}>
@@ -394,32 +393,34 @@ export function KYCForm() {
               {governmentIdPreview ? (
                 <div style={{ position: 'relative', marginBottom: 12 }}>
                   <img src={governmentIdPreview} alt="ID Preview" style={{ width: '100%', borderRadius: 12, border: '1px solid rgba(0,206,201,0.3)', maxHeight: 200, objectFit: 'cover' }} />
-                  <button onClick={() => { setGovernmentIdFile(null); setGovernmentIdPreview(''); setGovernmentIdUrl(''); }} style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: '50%', backgroundColor: 'rgba(255,107,107,0.8)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <X style={{ width: 14, height: 14 }} />
-                  </button>
+                  {!loading && (
+                    <button onClick={() => { setGovernmentIdFile(null); setGovernmentIdPreview(''); setGovernmentIdUrl(''); }} style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: '50%', backgroundColor: 'rgba(255,107,107,0.8)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <X style={{ width: 14, height: 14 }} />
+                    </button>
+                  )}
                 </div>
               ) : (
                 <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', border: '2px dashed rgba(0,206,201,0.3)', borderRadius: 14, cursor: loading ? 'not-allowed' : 'pointer', backgroundColor: 'rgba(0,206,201,0.03)', gap: 12 }}>
                   <div style={{ width: 52, height: 52, borderRadius: '50%', backgroundColor: 'rgba(0,206,201,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Upload style={{ width: 22, height: 22, color: '#00CEC9' }} />
+                    {loading ? <div style={{ width: 24, height: 24, border: '3px solid rgba(0,206,201,0.3)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> : <Upload style={{ width: 22, height: 22, color: '#00CEC9' }} />}
                   </div>
                   <div style={{ textAlign: 'center' }}>
-                    <p style={{ fontSize: 14, fontWeight: 600, color: 'white', margin: '0 0 4px' }}>{loading ? 'Uploading...' : 'Click to upload or drag and drop'}</p>
-                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>PNG, JPG, WEBP or PDF up to 10MB</p>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: 'white', margin: '0 0 4px' }}>{loading ? 'Uploading...' : 'Click to upload'}</p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>JPG, PNG, WEBP or PDF · Max 10MB</p>
                   </div>
-                  <input type="file" onChange={handleGovernmentIdUpload} style={{ display: 'none' }} accept="image/*,.pdf" disabled={loading} />
+                  <input type="file" onChange={handleGovernmentIdUpload} style={{ display: 'none' }} accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf" disabled={loading} />
                 </label>
               )}
               {governmentIdFile && governmentIdUrl && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '10px 14px', backgroundColor: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.2)', borderRadius: 10 }}>
                   <CheckCircle style={{ width: 16, height: 16, color: '#00B894', flexShrink: 0 }} />
-                  <p style={{ fontSize: 13, color: '#00B894', margin: 0 }}>{governmentIdFile.name} uploaded successfully</p>
+                  <p style={{ fontSize: 13, color: '#00B894', margin: 0 }}>{governmentIdFile.name} — uploaded successfully</p>
                 </div>
               )}
             </div>
             {governmentIdUrl && (
               <button onClick={() => setStep(2)} style={{ width: '100%', padding: '13px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
-                Continue to Face Capture
+                Continue to Face Capture →
               </button>
             )}
           </div>
@@ -459,7 +460,6 @@ export function KYCForm() {
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ width: 36, height: 36, border: '3px solid rgba(0,206,201,0.3)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 10px' }} />
                         <p style={{ fontSize: 13, color: '#8FA3BF' }}>Starting camera...</p>
-                        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                       </div>
                     </div>
                   )}
@@ -479,9 +479,11 @@ export function KYCForm() {
                   <div style={{ position: 'absolute', top: 12, right: 12, padding: '4px 12px', borderRadius: 999, backgroundColor: 'rgba(0,184,148,0.9)', color: 'white', fontSize: 12, fontWeight: 600 }}>Captured ✓</div>
                 </div>
                 <div style={{ display: 'flex', gap: 12 }}>
-                  <button onClick={() => { setFaceCaptureDataUrl(''); setFaceCaptureUrl(''); }} style={{ flex: 1, padding: '12px', borderRadius: 12, background: 'transparent', color: '#00CEC9', fontWeight: 700, fontSize: 14, border: '1px solid rgba(0,206,201,0.4)', cursor: 'pointer' }}>Retake</button>
+                  <button onClick={() => { setFaceCaptureDataUrl(''); setFaceCaptureUrl(''); }} disabled={loading} style={{ flex: 1, padding: '12px', borderRadius: 12, background: 'transparent', color: '#00CEC9', fontWeight: 700, fontSize: 14, border: '1px solid rgba(0,206,201,0.4)', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}>
+                    <RefreshCw style={{ width: 14, height: 14, display: 'inline', marginRight: 6 }} />Retake
+                  </button>
                   <button onClick={handleFaceCaptureUpload} disabled={loading} style={{ flex: 2, padding: '12px', borderRadius: 12, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
-                    {loading ? 'Uploading...' : 'Use This Photo'}
+                    {loading ? 'Uploading...' : 'Use This Photo →'}
                   </button>
                 </div>
               </div>
@@ -506,7 +508,7 @@ export function KYCForm() {
                 <p style={{ fontSize: 11, fontWeight: 600, color: '#8FA3BF', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Government ID</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <CheckCircle style={{ width: 18, height: 18, color: '#00B894', flexShrink: 0 }} />
-                  <p style={{ fontSize: 14, color: 'white', margin: 0, fontWeight: 500, textTransform: 'capitalize' }}>{governmentIdType.replace('_', ' ')} uploaded</p>
+                  <p style={{ fontSize: 14, color: 'white', margin: 0, fontWeight: 500, textTransform: 'capitalize' }}>{governmentIdType.replace('_', ' ')} — uploaded</p>
                 </div>
                 {governmentIdPreview && <img src={governmentIdPreview} alt="ID" style={{ width: '100%', borderRadius: 8, marginTop: 10, maxHeight: 120, objectFit: 'cover', border: '1px solid rgba(0,206,201,0.2)' }} />}
               </div>

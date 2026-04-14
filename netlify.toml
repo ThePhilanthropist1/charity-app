@@ -4,7 +4,14 @@
 
 [build.environment]
   NODE_VERSION = "20"
-  NPM_FLAGS = "--legacy-peer-deps"
+  NPM_FLAGS    = "--legacy-peer-deps"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# Increase timeout for upload and KYC routes
+[functions."api-upload"]
+  timeout = 30
+
+[functions."api-kyc"]
+  timeout = 30
