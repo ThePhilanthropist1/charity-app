@@ -1,6 +1,12 @@
 import useSWR from 'swr';
 import { useCallback } from 'react';
 
+// ── TOKEN HELPER — always reads fresh from localStorage ───────────────────────
+function getToken(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('auth_token') || '';
+}
+
 // Fetcher function
 const fetcher = (url: string, token?: string) =>
   fetch(url, {
@@ -12,11 +18,11 @@ const fetcher = (url: string, token?: string) =>
 // Hook to get current user
 export function useAuth() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-  const user = typeof window !== 'undefined' ? localStorage.getItem('auth_user') : null;
+  const user  = typeof window !== 'undefined' ? localStorage.getItem('auth_user')  : null;
 
   return {
     token,
-    user: user ? JSON.parse(user) : null,
+    user:            user ? JSON.parse(user) : null,
     isAuthenticated: !!token,
   };
 }
@@ -30,12 +36,7 @@ export function useUserProfile(userId?: string) {
     { revalidateOnFocus: false, dedupingInterval: 60000 }
   );
 
-  return {
-    user: data?.data,
-    isLoading,
-    error,
-    mutate,
-  };
+  return { user: data?.data, isLoading, error, mutate };
 }
 
 // Hook to get KYC submission
@@ -47,21 +48,21 @@ export function useKYCSubmission() {
     { revalidateOnFocus: false, dedupingInterval: 30000 }
   );
 
-  return {
-    submission: data?.data,
-    isLoading,
-    error,
-    mutate,
-  };
+  return { submission: data?.data, isLoading, error, mutate };
 }
 
-// Hook to submit KYC
+// ── SUBMIT KYC — token read at call time, not hook init ───────────────────────
 export function useSubmitKYC() {
-  const { token } = useAuth();
   const { mutate } = useKYCSubmission();
 
   const submit = useCallback(
     async (governmentIdType: string, governmentIdUrl: string, faceCaptureUrl: string) => {
+      // Read fresh token at call time — avoids stale null from hook init
+      const token = getToken();
+      if (!token) {
+        return { success: false, error: 'Not authenticated. Please log in again.' };
+      }
+
       try {
         const response = await fetch('/api/kyc', {
           method: 'POST',
@@ -70,24 +71,24 @@ export function useSubmitKYC() {
             'Authorization': `Bearer ${token}`,
           },
           body: JSON.stringify({
-            action: 'submit',
-            government_id_type: governmentIdType,
-            government_id_url: governmentIdUrl,
-            face_capture_url: faceCaptureUrl,
+            action:              'submit',
+            government_id_type:  governmentIdType,
+            government_id_url:   governmentIdUrl,
+            face_capture_url:    faceCaptureUrl,
           }),
         });
 
         const result = await response.json();
-        if (result.success) {
-          mutate();
-        }
+        if (result.success) mutate();
+        // Always return the real API response — never swallow the error
         return result;
       } catch (error) {
-        console.error('[v0] KYC submission error:', error);
-        return { success: false, error: 'Submission failed' };
+        const msg = error instanceof Error ? error.message : 'Submission failed. Please try again.';
+        console.error('[kyc] submission error:', msg);
+        return { success: false, error: msg };
       }
     },
-    [token, mutate]
+    [mutate] // token removed from deps — read fresh each call
   );
 
   return { submit };
@@ -102,12 +103,7 @@ export function useTokenDistributions(userId?: string) {
     { revalidateOnFocus: false, dedupingInterval: 60000 }
   );
 
-  return {
-    distributions: data?.data || [],
-    isLoading,
-    error,
-    mutate,
-  };
+  return { distributions: data?.data || [], isLoading, error, mutate };
 }
 
 // Hook to get admin users
@@ -119,12 +115,7 @@ export function useAdminUsers(role: string) {
     { revalidateOnFocus: false, dedupingInterval: 60000 }
   );
 
-  return {
-    users: data?.data || [],
-    isLoading,
-    error,
-    mutate,
-  };
+  return { users: data?.data || [], isLoading, error, mutate };
 }
 
 // Hook to get admin audit logs
@@ -136,20 +127,19 @@ export function useAdminAuditLogs() {
     { revalidateOnFocus: false, dedupingInterval: 30000 }
   );
 
-  return {
-    logs: data?.data || [],
-    isLoading,
-    error,
-    mutate,
-  };
+  return { logs: data?.data || [], isLoading, error, mutate };
 }
 
-// Hook for file upload
+// ── FILE UPLOAD — token read at call time, not hook init ──────────────────────
 export function useFileUpload() {
-  const { token } = useAuth();
-
   const upload = useCallback(
     async (file: File, type: 'government_id' | 'face_capture') => {
+      // Read fresh token at call time
+      const token = getToken();
+      if (!token) {
+        return { success: false, error: 'Not authenticated. Please log in again.' };
+      }
+
       try {
         const formData = new FormData();
         formData.append('file', file);
@@ -164,13 +154,15 @@ export function useFileUpload() {
         });
 
         const result = await response.json();
+        // Return real API response including real error messages
         return result;
       } catch (error) {
-        console.error('[v0] Upload error:', error);
-        return { success: false, error: 'Upload failed' };
+        const msg = error instanceof Error ? error.message : 'Upload failed. Please try again.';
+        console.error('[upload] error:', msg);
+        return { success: false, error: msg };
       }
     },
-    [token]
+    [] // no deps — token read fresh each call
   );
 
   return { upload };
