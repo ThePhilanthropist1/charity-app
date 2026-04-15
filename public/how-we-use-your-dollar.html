@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Charity Token — $1M Allocation</title>
+<style>
+/* ── SELF-CONTAINED: no external resources, works fully offline ── */
+
+:root {
+  --navy:   #020C1B;
+  --navy2:  #071828;
+  --navy3:  #0A1F38;
+  --teal:   #00CEC9;
+  --teal2:  #00E5DE;
+  --green:  #00B894;
+  --green2: #00D4A8;
+  --gold:   #FFD000;
+  --gold2:  #FFA500;
+  --purp:   #7C5CFC;
+  --purp2:  #A78BFA;
+  --red:    #FF6B6B;
+  --red2:   #FF8E53;
+  --white:  #FFFFFF;
+  --grey:   #8FA3BF;
+  --pale:   #B8D4E0;
+  --font:   'Segoe UI', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+
+body {
+  font-family: var(--font);
+  background: var(--navy);
+  color: var(--white);
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+/* ── BACKGROUND: pure CSS, no canvas, fully offline ── */
+.bg-wrap {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  background: var(--navy);
+}
+
+/* Grid */
+.bg-wrap::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,206,201,0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,206,201,0.045) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* Radial glows */
+.bg-glow {
+  position: absolute; border-radius: 50%;
+  filter: blur(80px); pointer-events: none;
+}
+.g1 { width:60vw; height:60vw; top:-15%; left:-10%;
+  background: radial-gradient(circle, rgba(0,206,201,0.12) 0%, transparent 70%);
+  animation: gdrift 14s ease-in-out infinite alternate; }
+.g2 { width:50vw; height:50vw; bottom:-15%; right:-5%;
+  background: radial-gradient(circle, rgba(0,184,148,0.1) 0%, transparent 70%);
+  animation: gdrift2 17s ease-in-out infinite alternate; }
+.g3 { width:40vw; height:40vw; top:30%; right:15%;
+  background: radial-gradient(circle, rgba(255,208,0,0.06) 0%, transparent 70%);
+  animation: gdrift3 20s ease-in-out infinite alternate; }
+.g4 { width:30vw; height:30vw; bottom:20%; left:20%;
+  background: radial-gradient(circle, rgba(124,92,252,0.07) 0%, transparent 70%);
+  animation: gdrift4 18s ease-in-out infinite alternate; }
+
+/* Stars — CSS only */
+.stars {
+  position: absolute; inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 10% 15%, rgba(255,255,255,0.55) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 25% 60%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 40% 25%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(2px 2px at 55% 80%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(1px 1px at 70% 10%, rgba(255,255,255,0.6) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 85% 45%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(1px 1px at 15% 85%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 90% 70%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(2px 2px at 35% 50%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1px 1px at 60% 35%, rgba(255,255,255,0.55) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 80% 90%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 5% 40%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(1px 1px at 45% 92%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(2px 2px at 72% 55%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1px 1px at 95% 20%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 30% 75%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 65% 5%, rgba(255,255,255,0.55) 0%, transparent 100%),
+    radial-gradient(1px 1px at 50% 45%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(2px 2px at 88% 35%, rgba(255,255,255,0.35) 0%, transparent 100%);
+  animation: twinkle 6s ease-in-out infinite alternate;
+}
+
+@keyframes gdrift  { from{transform:translate(0,0) scale(1)} to{transform:translate(4%,6%) scale(1.08)} }
+@keyframes gdrift2 { from{transform:translate(0,0) scale(1)} to{transform:translate(-5%,-4%) scale(1.06)} }
+@keyframes gdrift3 { from{transform:translate(0,0)} to{transform:translate(-3%,5%)} }
+@keyframes gdrift4 { from{transform:translate(0,0)} to{transform:translate(6%,-3%)} }
+@keyframes twinkle { from{opacity:0.7} to{opacity:1} }
+
+/* ── LAYOUT ── */
+.page { position:relative; z-index:2; max-width:1080px; margin:0 auto; padding:0 24px 100px; }
+
+/* ── HERO ── */
+.hero { padding:80px 0 52px; text-align:center; }
+
+.hero-badge {
+  display:inline-flex; align-items:center; gap:8px;
+  font-size:11px; font-weight:700; letter-spacing:3px; text-transform:uppercase;
+  color:var(--teal);
+  background:rgba(0,206,201,0.08); border:1px solid rgba(0,206,201,0.25);
+  padding:8px 20px; border-radius:999px; margin-bottom:32px;
+  animation:fadeUp 0.6s ease both;
+}
+.hero-badge .dot {
+  width:7px; height:7px; border-radius:50%;
+  background:var(--teal); box-shadow:0 0 8px var(--teal);
+  animation:blink 2s infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+h1 {
+  font-size:clamp(40px,7vw,82px); font-weight:900; line-height:1.0;
+  letter-spacing:-2.5px; margin-bottom:8px;
+  animation:fadeUp 0.7s 0.1s ease both;
+}
+h1 .grad-text {
+  background:linear-gradient(135deg, var(--teal2) 0%, var(--green) 50%, var(--teal) 100%);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+}
+h1 .gold-text {
+  background:linear-gradient(135deg, var(--gold) 0%, var(--gold2) 100%);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+}
+
+.hero-sub {
+  font-size:17px; color:var(--pale); font-weight:400; line-height:1.75;
+  max-width:560px; margin:20px auto 44px;
+  animation:fadeUp 0.7s 0.2s ease both;
+}
+
+/* Equation */
+.equation {
+  display:inline-flex; align-items:center; gap:0;
+  background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);
+  border-radius:20px; padding:4px; margin-bottom:52px;
+  animation:fadeUp 0.7s 0.3s ease both; flex-wrap:wrap; justify-content:center;
+}
+.eq-pill { padding:14px 24px; border-radius:16px; text-align:center; }
+.eq-pill.active {
+  background:linear-gradient(135deg, rgba(0,206,201,0.12), rgba(0,184,148,0.08));
+  border:1px solid rgba(0,206,201,0.2);
+}
+.eq-pill .val {
+  font-size:22px; font-weight:800; letter-spacing:-0.5px;
+  background:linear-gradient(135deg, var(--teal), var(--green));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+}
+.eq-pill.result .val {
+  background:linear-gradient(135deg, var(--gold), var(--gold2));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  font-size:26px;
+}
+.eq-pill .lbl { font-size:11px; color:var(--grey); margin-top:3px; }
+.eq-op { font-size:20px; color:rgba(255,255,255,0.18); padding:0 6px; align-self:center; }
+
+/* Colour bar */
+.bar-row {
+  display:flex; gap:6px; height:68px; border-radius:18px; overflow:hidden;
+  margin-bottom:14px; animation:fadeUp 0.7s 0.35s ease both;
+}
+.bar-seg {
+  display:flex; align-items:center; justify-content:center; flex-direction:column; gap:2px;
+  border-radius:0; transition:filter 0.3s; cursor:default;
+}
+.bar-seg:hover { filter:brightness(1.15); }
+.bar-seg:first-child { border-radius:18px 0 0 18px; }
+.bar-seg:last-child  { border-radius:0 18px 18px 0; }
+.bar-seg .sp { font-size:14px; font-weight:800; }
+.bar-seg .sl { font-size:9px;  font-weight:700; letter-spacing:0.5px; opacity:0.85; }
+
+/* ── SECTION HEADING ── */
+.sec-head { display:flex; align-items:center; gap:14px; margin:68px 0 28px; }
+.sec-line  { width:3px; height:30px; border-radius:2px; background:linear-gradient(to bottom, var(--teal), var(--green)); flex-shrink:0; }
+.sec-head h2 { font-size:26px; font-weight:900; letter-spacing:-0.5px; }
+.sec-badge {
+  margin-left:auto; font-size:11px; color:var(--grey);
+  border:1px solid rgba(255,255,255,0.08); padding:5px 14px; border-radius:999px;
+  background:rgba(255,255,255,0.03);
+}
+
+/* ── VISUAL ROW (donut + legend) ── */
+.visual-row {
+  display:grid; grid-template-columns:auto 1fr; gap:48px; align-items:center;
+  background:var(--navy2); border:1px solid rgba(255,255,255,0.07);
+  border-radius:28px; padding:40px; margin-top:64px; position:relative; overflow:hidden;
+  animation:fadeUp 0.7s 0.4s ease both;
+}
+.visual-row::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:linear-gradient(90deg, var(--gold), var(--teal), var(--purp), var(--green), var(--red));
+  border-radius:28px 28px 0 0;
+}
+.donut-wrap { position:relative; width:220px; height:220px; flex-shrink:0; }
+.donut-mid {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+}
+.donut-mid .dl { font-size:11px; color:var(--grey); letter-spacing:1px; text-transform:uppercase; }
+.donut-mid .dv { font-size:32px; font-weight:900; color:var(--white); letter-spacing:-1px; line-height:1.1; }
+.donut-mid .ds { font-size:11px; color:var(--grey); }
+
+.legend { display:flex; flex-direction:column; gap:16px; }
+.leg-row { display:flex; align-items:center; gap:14px; }
+.leg-sw {
+  width:38px; height:38px; border-radius:11px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; font-size:17px;
+}
+.leg-info { flex:1; }
+.leg-name { font-size:14px; font-weight:700; }
+.leg-sub  { font-size:12px; color:var(--grey); margin-top:1px; }
+.leg-val  { font-size:20px; font-weight:800; letter-spacing:-0.5px; }
+
+/* ── CARDS ── */
+.cards-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+
+.acard {
+  border-radius:22px; padding:30px 26px; position:relative; overflow:hidden;
+  background:var(--navy2); border:1px solid rgba(255,255,255,0.06);
+  transition:transform 0.3s ease, box-shadow 0.3s ease;
+  animation:fadeUp 0.7s ease both;
+}
+.acard:hover { transform:translateY(-5px); }
+
+/* Top bar */
+.acard::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px; border-radius:22px 22px 0 0;
+}
+/* Blob */
+.blob {
+  position:absolute; top:-30px; right:-30px; width:120px; height:120px;
+  border-radius:50%; opacity:0.07; pointer-events:none;
+}
+
+/* Gold */
+.c-gold { background:linear-gradient(145deg,#0F1E10,#0A1628); border-color:rgba(255,208,0,0.14); }
+.c-gold:hover  { box-shadow:0 24px 60px rgba(255,208,0,0.1); }
+.c-gold::before  { background:linear-gradient(90deg, var(--gold), var(--gold2)); }
+.c-gold .blob   { background:radial-gradient(circle, var(--gold), transparent); }
+
+/* Teal */
+.c-teal { background:linear-gradient(145deg,#071F2A,#0A1628); border-color:rgba(0,206,201,0.14); }
+.c-teal:hover  { box-shadow:0 24px 60px rgba(0,206,201,0.1); }
+.c-teal::before  { background:linear-gradient(90deg, var(--teal), var(--teal2)); }
+.c-teal .blob   { background:radial-gradient(circle, var(--teal), transparent); }
+
+/* Purp */
+.c-purp { background:linear-gradient(145deg,#100E28,#0A1628); border-color:rgba(124,92,252,0.14); }
+.c-purp:hover  { box-shadow:0 24px 60px rgba(124,92,252,0.1); }
+.c-purp::before  { background:linear-gradient(90deg, var(--purp), var(--purp2)); }
+.c-purp .blob   { background:radial-gradient(circle, var(--purp), transparent); }
+
+/* Green */
+.c-green { background:linear-gradient(145deg,#071F18,#0A1628); border-color:rgba(0,184,148,0.14); }
+.c-green:hover { box-shadow:0 24px 60px rgba(0,184,148,0.1); }
+.c-green::before { background:linear-gradient(90deg, var(--green), var(--green2)); }
+.c-green .blob  { background:radial-gradient(circle, var(--green), transparent); }
+
+/* Red - full width */
+.c-red { background:linear-gradient(145deg,#1F0E0E,#0A1628); border-color:rgba(255,107,107,0.14); grid-column:1/-1; }
+.c-red:hover   { box-shadow:0 24px 60px rgba(255,107,107,0.1); }
+.c-red::before   { background:linear-gradient(90deg, var(--red), var(--red2)); }
+.c-red .blob    { background:radial-gradient(circle, var(--red), transparent); }
+
+.ct { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; }
+.ci {
+  width:54px; height:54px; border-radius:15px;
+  display:flex; align-items:center; justify-content:center; font-size:24px; flex-shrink:0;
+}
+.c-gold  .ci { background:rgba(255,208,0,0.1);   border:1px solid rgba(255,208,0,0.2); }
+.c-teal  .ci { background:rgba(0,206,201,0.1);   border:1px solid rgba(0,206,201,0.2); }
+.c-purp  .ci { background:rgba(124,92,252,0.1);  border:1px solid rgba(124,92,252,0.2); }
+.c-green .ci { background:rgba(0,184,148,0.1);   border:1px solid rgba(0,184,148,0.2); }
+.c-red   .ci { background:rgba(255,107,107,0.1); border:1px solid rgba(255,107,107,0.2); }
+
+.ca { text-align:right; }
+.cd {
+  font-size:34px; font-weight:900; line-height:1; letter-spacing:-1px;
+}
+.c-gold  .cd { color:var(--gold); }
+.c-teal  .cd { color:var(--teal); }
+.c-purp  .cd { color:var(--purp2); }
+.c-green .cd { color:var(--green); }
+.c-red   .cd { color:var(--red); }
+
+.cp {
+  display:inline-block; margin-top:5px;
+  font-size:11px; font-weight:700; padding:3px 11px; border-radius:999px;
+}
+.c-gold  .cp { background:rgba(255,208,0,0.12);   color:var(--gold);  border:1px solid rgba(255,208,0,0.2); }
+.c-teal  .cp { background:rgba(0,206,201,0.12);   color:var(--teal);  border:1px solid rgba(0,206,201,0.2); }
+.c-purp  .cp { background:rgba(124,92,252,0.12);  color:var(--purp2); border:1px solid rgba(124,92,252,0.2); }
+.c-green .cp { background:rgba(0,184,148,0.12);   color:var(--green); border:1px solid rgba(0,184,148,0.2); }
+.c-red   .cp { background:rgba(255,107,107,0.12); color:var(--red);   border:1px solid rgba(255,107,107,0.2); }
+
+.ctitle { font-size:19px; font-weight:800; letter-spacing:-0.3px; margin-bottom:10px; }
+.cdesc  { font-size:13px; color:var(--grey); line-height:1.8; margin-bottom:18px; }
+.cdesc strong { color:var(--pale); }
+
+.ptrack { height:5px; border-radius:999px; background:rgba(255,255,255,0.05); overflow:hidden; margin-bottom:8px; }
+.pfill  { height:100%; border-radius:999px; animation:growbar 2s cubic-bezier(0.4,0,0.2,1) both; transform-origin:left; }
+@keyframes growbar { from{transform:scaleX(0)} to{transform:scaleX(1)} }
+.plbl { display:flex; justify-content:space-between; font-size:10px; color:rgba(143,163,191,0.5); }
+
+.c-gold  .pfill { background:linear-gradient(90deg,var(--gold),var(--gold2)); width:30%; }
+.c-teal  .pfill { background:linear-gradient(90deg,var(--teal),var(--teal2)); width:20%; }
+.c-purp  .pfill { background:linear-gradient(90deg,var(--purp),var(--purp2)); width:20%; }
+.c-green .pfill { background:linear-gradient(90deg,var(--green),var(--green2)); width:20%; }
+.c-red   .pfill { background:linear-gradient(90deg,var(--red),var(--red2)); width:10%; }
+
+.wide-body { display:grid; grid-template-columns:1fr 1fr; gap:32px; }
+.tags-wrap  { display:flex; flex-wrap:wrap; gap:8px; align-content:flex-start; }
+.tchip {
+  padding:7px 13px; border-radius:999px; font-size:12px; font-weight:600;
+  background:rgba(255,107,107,0.08); color:rgba(255,107,107,0.9);
+  border:1px solid rgba(255,107,107,0.18);
+}
+
+/* ── TRUST ── */
+.trust-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+.tcard {
+  background:var(--navy2); border:1px solid rgba(255,255,255,0.06);
+  border-radius:20px; padding:22px 18px; text-align:center;
+  transition:transform 0.3s ease, border-color 0.3s ease;
+  animation:fadeUp 0.7s ease both;
+}
+.tcard:hover { transform:translateY(-4px); border-color:rgba(0,206,201,0.2); }
+.tcard .ticon {
+  width:50px; height:50px; border-radius:14px; margin:0 auto 12px;
+  display:flex; align-items:center; justify-content:center; font-size:22px;
+  background:rgba(0,206,201,0.08); border:1px solid rgba(0,206,201,0.15);
+}
+.tcard .ttitle { font-size:14px; font-weight:800; margin-bottom:7px; }
+.tcard .tdesc  { font-size:12px; color:var(--grey); line-height:1.75; }
+
+/* ── CTA ── */
+.cta {
+  margin-top:68px; text-align:center; position:relative; overflow:hidden;
+  background:linear-gradient(135deg,rgba(0,206,201,0.09),rgba(0,184,148,0.06),rgba(255,208,0,0.04));
+  border:1px solid rgba(0,206,201,0.2); border-radius:32px; padding:56px 36px;
+  animation:fadeUp 0.7s 0.5s ease both;
+}
+.cta::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:linear-gradient(90deg,var(--teal),var(--green),var(--gold));
+}
+.cta-glow {
+  position:absolute; top:-60%; left:50%; transform:translateX(-50%);
+  width:600px; height:300px;
+  background:radial-gradient(ellipse,rgba(0,206,201,0.1) 0%,transparent 70%);
+  pointer-events:none;
+}
+.cta h3 {
+  font-size:clamp(24px,4vw,40px); font-weight:900; letter-spacing:-1px;
+  margin-bottom:12px; position:relative;
+}
+.cta p { font-size:15px; color:var(--pale); margin-bottom:32px; line-height:1.7; position:relative; }
+.cta-btn {
+  display:inline-flex; align-items:center; gap:10px;
+  padding:17px 46px; border-radius:15px;
+  background:linear-gradient(135deg,var(--teal),var(--green));
+  color:var(--navy); font-weight:800; font-size:16px;
+  text-decoration:none; letter-spacing:0.2px;
+  box-shadow:0 8px 36px rgba(0,206,201,0.35);
+  transition:transform 0.2s ease,box-shadow 0.2s ease;
+  position:relative;
+}
+.cta-btn:hover { transform:translateY(-3px); box-shadow:0 14px 50px rgba(0,206,201,0.45); }
+
+.disclaimer {
+  text-align:center; margin-top:36px;
+  font-size:11px; color:rgba(143,163,191,0.4); line-height:1.8;
+}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeUp { from{opacity:0;transform:translateY(26px)} to{opacity:1;transform:translateY(0)} }
+
+.acard:nth-child(1){animation-delay:0.1s}
+.acard:nth-child(2){animation-delay:0.18s}
+.acard:nth-child(3){animation-delay:0.26s}
+.acard:nth-child(4){animation-delay:0.34s}
+.acard:nth-child(5){animation-delay:0.42s}
+.tcard:nth-child(1){animation-delay:0.05s}
+.tcard:nth-child(2){animation-delay:0.12s}
+.tcard:nth-child(3){animation-delay:0.19s}
+.tcard:nth-child(4){animation-delay:0.26s}
+.tcard:nth-child(5){animation-delay:0.33s}
+.tcard:nth-child(6){animation-delay:0.40s}
+
+/* ── RESPONSIVE ── */
+@media(max-width:700px){
+  .cards-grid{grid-template-columns:1fr}
+  .wide-body{grid-template-columns:1fr}
+  .visual-row{grid-template-columns:1fr;justify-items:center;gap:32px}
+  .trust-grid{grid-template-columns:1fr 1fr}
+  .eq-pill{padding:10px 12px}
+  .eq-pill .val{font-size:16px}
+}
+@media(max-width:440px){
+  .trust-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- Pure CSS background — no canvas, fully offline -->
+<div class="bg-wrap">
+  <div class="bg-glow g1"></div>
+  <div class="bg-glow g2"></div>
+  <div class="bg-glow g3"></div>
+  <div class="bg-glow g4"></div>
+  <div class="stars"></div>
+</div>
+
+<div class="page">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-badge"><span class="dot"></span>Charity Token · Full Transparency Report</div>
+    <h1>Where Does Your<br><span class="grad-text">$1</span> <span class="gold-text">Actually Go?</span></h1>
+    <p class="hero-sub">One million people. One dollar each. A fully transparent, community-governed plan for every single dollar — building real value for every beneficiary starting 2027.</p>
+
+    <div class="equation">
+      <div class="eq-pill active"><div class="val">1,000,000</div><div class="lbl">Members</div></div>
+      <div class="eq-op">×</div>
+      <div class="eq-pill active"><div class="val">$1</div><div class="lbl">Each</div></div>
+      <div class="eq-op">=</div>
+      <div class="eq-pill result active"><div class="val">$1,000,000</div><div class="lbl">Community Treasury</div></div>
+    </div>
+
+    <!-- Colour bar -->
+    <div class="bar-row">
+      <div class="bar-seg" style="flex:30;background:linear-gradient(135deg,#b8860b,#FFD000,#FFA500);">
+        <span class="sp">30%</span><span class="sl" style="color:rgba(2,12,27,0.75);">PHILANTHROPISTS</span>
+      </div>
+      <div class="bar-seg" style="flex:20;background:linear-gradient(135deg,#007B8A,#00CEC9,#00E5DE);">
+        <span class="sp" style="color:#020C1B;">20%</span><span class="sl" style="color:rgba(2,12,27,0.7);">HACKATHONS</span>
+      </div>
+      <div class="bar-seg" style="flex:20;background:linear-gradient(135deg,#4B2EA0,#7C5CFC,#A78BFA);">
+        <span class="sp">20%</span><span class="sl">LISTING</span>
+      </div>
+      <div class="bar-seg" style="flex:20;background:linear-gradient(135deg,#006B56,#00B894,#00D4A8);">
+        <span class="sp" style="color:#020C1B;">20%</span><span class="sl" style="color:rgba(2,12,27,0.7);">STAKING</span>
+      </div>
+      <div class="bar-seg" style="flex:10;background:linear-gradient(135deg,#8B1A1A,#FF6B6B,#FF8E53);">
+        <span class="sp">10%</span><span class="sl">TEAM</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DONUT + LEGEND -->
+  <div class="visual-row">
+    <div class="donut-wrap">
+      <svg width="220" height="220" viewBox="0 0 220 220" style="transform:rotate(-90deg)">
+        <defs>
+          <linearGradient id="gg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#b8860b"/><stop offset="100%" stop-color="#FFA500"/>
+          </linearGradient>
+          <linearGradient id="gt" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#00CEC9"/><stop offset="100%" stop-color="#00E5DE"/>
+          </linearGradient>
+          <linearGradient id="gp" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#7C5CFC"/><stop offset="100%" stop-color="#A78BFA"/>
+          </linearGradient>
+          <linearGradient id="grn" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#00B894"/><stop offset="100%" stop-color="#00D4A8"/>
+          </linearGradient>
+          <linearGradient id="grd" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#FF8E53"/>
+          </linearGradient>
+        </defs>
+        <circle cx="110" cy="110" r="88" fill="none" stroke="#071828" stroke-width="30"/>
+        <!-- circumference = 552.9 -->
+        <circle cx="110" cy="110" r="88" fill="none" stroke="url(#gg)"  stroke-width="26" stroke-dasharray="165.9 387.0" stroke-dashoffset="0"/>
+        <circle cx="110" cy="110" r="88" fill="none" stroke="url(#gt)"  stroke-width="26" stroke-dasharray="110.6 442.3" stroke-dashoffset="-165.9"/>
+        <circle cx="110" cy="110" r="88" fill="none" stroke="url(#gp)"  stroke-width="26" stroke-dasharray="110.6 442.3" stroke-dashoffset="-276.5"/>
+        <circle cx="110" cy="110" r="88" fill="none" stroke="url(#grn)" stroke-width="26" stroke-dasharray="110.6 442.3" stroke-dashoffset="-387.1"/>
+        <circle cx="110" cy="110" r="88" fill="none" stroke="url(#grd)" stroke-width="26" stroke-dasharray="55.3  497.6" stroke-dashoffset="-497.7"/>
+        <circle cx="110" cy="110" r="72" fill="#071828"/>
+      </svg>
+      <div class="donut-mid">
+        <span class="dl">TOTAL FUND</span>
+        <span class="dv">$1M</span>
+        <span class="ds">5 categories</span>
+      </div>
+    </div>
+    <div class="legend">
+      <div class="leg-row">
+        <div class="leg-sw" style="background:rgba(255,208,0,0.1);border:1px solid rgba(255,208,0,0.22);">🤲</div>
+        <div class="leg-info"><div class="leg-name">Philanthropists & Team</div><div class="leg-sub">Community activation rewards</div></div>
+        <div class="leg-val" style="color:var(--gold);">$300K</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-sw" style="background:rgba(0,206,201,0.1);border:1px solid rgba(0,206,201,0.22);">⚡</div>
+        <div class="leg-info"><div class="leg-name">Developer Hackathons</div><div class="leg-sub">Build real token utilities</div></div>
+        <div class="leg-val" style="color:var(--teal);">$200K</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-sw" style="background:rgba(124,92,252,0.1);border:1px solid rgba(124,92,252,0.22);">📈</div>
+        <div class="leg-info"><div class="leg-name">Exchange Listing</div><div class="leg-sub">Market access & liquidity</div></div>
+        <div class="leg-val" style="color:var(--purp2);">$200K</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-sw" style="background:rgba(0,184,148,0.1);border:1px solid rgba(0,184,148,0.22);">🔥</div>
+        <div class="leg-info"><div class="leg-name">Staking & Token Burns</div><div class="leg-sub">Annual buyback & permanent burn</div></div>
+        <div class="leg-val" style="color:var(--green);">$200K</div>
+      </div>
+      <div class="leg-row">
+        <div class="leg-sw" style="background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.22);">🛠️</div>
+        <div class="leg-info"><div class="leg-name">Core Team & Operations</div><div class="leg-sub">Platform maintenance</div></div>
+        <div class="leg-val" style="color:var(--red);">$100K</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ALLOCATION CARDS -->
+  <div class="sec-head">
+    <div class="sec-line"></div>
+    <h2>Full Breakdown</h2>
+    <span class="sec-badge">5 allocation categories</span>
+  </div>
+
+  <div class="cards-grid">
+
+    <div class="acard c-gold">
+      <div class="blob"></div>
+      <div class="ct">
+        <div class="ci">🤲</div>
+        <div class="ca"><div class="cd">$300K</div><div class="cp">30% of fund</div></div>
+      </div>
+      <div class="ctitle">Philanthropists & Team</div>
+      <div class="cdesc">Philanthropists are community members who activate beneficiaries on the ground. They earn <strong>30% of the total fund</strong> as direct compensation for their recruitment and activation work. This is how we reward real community builders.</div>
+      <div class="ptrack"><div class="pfill"></div></div>
+      <div class="plbl"><span>0%</span><span>30% allocated</span><span>100%</span></div>
+    </div>
+
+    <div class="acard c-teal">
+      <div class="blob"></div>
+      <div class="ct">
+        <div class="ci">⚡</div>
+        <div class="ca"><div class="cd">$200K</div><div class="cp">20% of fund</div></div>
+      </div>
+      <div class="ctitle">Developer Hackathons</div>
+      <div class="cdesc">We attract the world's best developers to build <strong>DeFi tools, AI applications, and real-world utilities</strong> on Charity Token — giving every holder genuine utility and increasing long-term value for all 1 million members.</div>
+      <div class="ptrack"><div class="pfill"></div></div>
+      <div class="plbl"><span>0%</span><span>20% allocated</span><span>100%</span></div>
+    </div>
+
+    <div class="acard c-purp">
+      <div class="blob"></div>
+      <div class="ct">
+        <div class="ci">📈</div>
+        <div class="ca"><div class="cd">$200K</div><div class="cp">20% of fund</div></div>
+      </div>
+      <div class="ctitle">Exchange Listing</div>
+      <div class="cdesc">Listing Charity Token on reputable exchanges gives every beneficiary the power to <strong>trade, hold, or use their 500 CT monthly distributions</strong>. Market access creates real liquidity and transparent price discovery.</div>
+      <div class="ptrack"><div class="pfill"></div></div>
+      <div class="plbl"><span>0%</span><span>20% allocated</span><span>100%</span></div>
+    </div>
+
+    <div class="acard c-green">
+      <div class="blob"></div>
+      <div class="ct">
+        <div class="ci">🔥</div>
+        <div class="ca"><div class="cd">$200K</div><div class="cp">20% of fund</div></div>
+      </div>
+      <div class="ctitle">Staking & Token Burns</div>
+      <div class="cdesc">$200K is staked permanently. The annual interest earned is used exclusively to <strong>buy Charity Token from the open market and burn it forever</strong> — reducing total supply every year, protecting the value of every holder's tokens.</div>
+      <div class="ptrack"><div class="pfill"></div></div>
+      <div class="plbl"><span>0%</span><span>20% allocated</span><span>100%</span></div>
+    </div>
+
+    <div class="acard c-red">
+      <div class="blob"></div>
+      <div class="ct">
+        <div class="ci">🛠️</div>
+        <div class="ca"><div class="cd">$100K</div><div class="cp">10% of fund</div></div>
+      </div>
+      <div class="ctitle">Core Team & Project Maintenance</div>
+      <div class="wide-body">
+        <div>
+          <div class="cdesc">The smallest allocation. Funds ongoing platform development, server infrastructure, legal compliance, security audits, and daily operations — keeping Charity Token running reliably for all 1,000,000 beneficiaries. <strong>Only 10%</strong> because the mission always comes first.</div>
+          <div class="ptrack"><div class="pfill"></div></div>
+          <div class="plbl"><span>0%</span><span>10% allocated</span><span>100%</span></div>
+        </div>
+        <div class="tags-wrap">
+          <span class="tchip">🖥️ Platform Dev</span>
+          <span class="tchip">🔐 Security Audits</span>
+          <span class="tchip">⚖️ Legal & Compliance</span>
+          <span class="tchip">🌐 Infrastructure</span>
+          <span class="tchip">📱 Mobile App</span>
+          <span class="tchip">🎯 Community Ops</span>
+          <span class="tchip">📊 Analytics</span>
+          <span class="tchip">🤝 Partnerships</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TRUST -->
+  <div class="sec-head">
+    <div class="sec-line"></div>
+    <h2>Why You Can Trust This</h2>
+    <span class="sec-badge">6 trust signals</span>
+  </div>
+
+  <div class="trust-grid">
+    <div class="tcard"><div class="ticon">🔍</div><div class="ttitle">Fully Transparent</div><div class="tdesc">Every allocation is published publicly. No hidden fees, no undisclosed wallets, no fine print.</div></div>
+    <div class="tcard"><div class="ticon">🚫</div><div class="ttitle">Not an Investment</div><div class="tdesc">Your $1 is a community support contribution — not a financial product. You're joining a movement.</div></div>
+    <div class="tcard"><div class="ticon">🌍</div><div class="ttitle">90% Back to Community</div><div class="tdesc">Philanthropists + hackathons + listing + staking = 90% of all funds build community value directly.</div></div>
+    <div class="tcard"><div class="ticon">📅</div><div class="ttitle">10-Year Commitment</div><div class="tdesc">500 CT every month for 10 years from 2027. Long-term thinking, not a short-term project.</div></div>
+    <div class="tcard"><div class="ticon">🔥</div><div class="ttitle">Deflationary by Design</div><div class="tdesc">Staking returns buy and permanently burn tokens annually. Supply decreases. Value is protected.</div></div>
+    <div class="tcard"><div class="ticon">⚡</div><div class="ttitle">Real Utility Roadmap</div><div class="tdesc">$200K in developer prizes ensures real apps and real use cases are built on Charity Token by 2027.</div></div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta">
+    <div class="cta-glow"></div>
+    <h3>Your $1 Builds Something<br>Bigger Than All of Us</h3>
+    <p>Join 1,000,000 people becoming real owners of the future digital economy.<br>Register free. Activate for just $1. Receive 500 CT every month from 2027.</p>
+    <a href="https://www.charitytoken.net" class="cta-btn" target="_blank">🌍 &nbsp;Register at charitytoken.net</a>
+  </div>
+
+  <p class="disclaimer">Not an investment · Not an ICO · $1 is a one-time community support contribution only · CHARITY Token does not currently exist on any exchange · No financial returns guaranteed · Participate based on belief in the mission · charitytoken.net</p>
+
+</div>
+</body>
+</html>
