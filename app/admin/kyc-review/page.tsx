@@ -1,21 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { ProtectedRoute } from '@/components/protected-route';
 import {
   CheckCircle, XCircle, Clock, Users, ArrowLeft,
-  User, Phone, MapPin, FileText, Shield, Eye
+  User, Phone, MapPin, FileText, Shield, Eye,
+  RefreshCw, AlertCircle, Loader
 } from 'lucide-react';
 import Image from 'next/image';
 
-// ── API HELPER — always fresh token ──────────────────────────────────────────
+// ── API HELPERS ───────────────────────────────────────────────────────────────
+function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('auth_token') || '' : ''; }
+
 async function kycPatch(body: object): Promise<{ success: boolean; error?: string }> {
-  const token = localStorage.getItem('auth_token') || '';
   const res = await fetch('/api/kyc', {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -23,6 +25,84 @@ async function kycPatch(body: object): Promise<{ success: boolean; error?: strin
   catch { return { success: false, error: 'Server error: ' + text.slice(0, 100) }; }
 }
 
+// Refresh signed URLs for KYC document images via a dedicated API route
+async function refreshSignedUrls(governmentIdUrl: string, faceCaptureUrl: string): Promise<{ idUrl: string; faceUrl: string }> {
+  try {
+    const res = await fetch('/api/kyc-signed-urls', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+      body: JSON.stringify({ government_id_url: governmentIdUrl, face_capture_url: faceCaptureUrl }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) return { idUrl: data.id_url, faceUrl: data.face_url };
+    }
+  } catch { /* fall through to original URLs */ }
+  // Fallback: return originals
+  return { idUrl: governmentIdUrl, faceUrl: faceCaptureUrl };
+}
+
+// ── DOCUMENT IMAGE COMPONENT ──────────────────────────────────────────────────
+function DocImage({ url, alt, label }: { url: string; alt: string; label: string }) {
+  const [src, setSrc] = useState(url);
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [retries, setRetries] = useState(0);
+
+  useEffect(() => { setSrc(url); setStatus('loading'); }, [url]);
+
+  const handleError = () => {
+    if (retries < 2) {
+      // Add cache-busting param and retry
+      setTimeout(() => {
+        setSrc(url + (url.includes('?') ? '&' : '?') + '_r=' + Date.now());
+        setRetries(r => r + 1);
+      }, 800);
+    } else {
+      setStatus('error');
+    }
+  };
+
+  return (
+    <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
+      <h3 style={{ fontSize: 13, fontWeight: 700, color: '#8FA3BF', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <FileText style={{ width: 14, height: 14, color: '#00CEC9' }} /> {label}
+      </h3>
+      {status === 'error' ? (
+        <div style={{ padding: '24px', textAlign: 'center', borderRadius: 10, backgroundColor: 'rgba(255,107,107,0.06)', border: '1px solid rgba(255,107,107,0.2)' }}>
+          <AlertCircle style={{ width: 28, height: 28, color: '#ff6b6b', margin: '0 auto 10px' }} />
+          <p style={{ fontSize: 12, color: '#ff6b6b', marginBottom: 10 }}>Image could not be loaded.</p>
+          <a href={url} target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: 12, color: '#00CEC9', textDecoration: 'underline' }}>
+            Open in new tab →
+          </a>
+        </div>
+      ) : (
+        <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', minHeight: 120 }}>
+          {status === 'loading' && (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(10,22,40,0.8)', zIndex: 1 }}>
+              <Loader style={{ width: 24, height: 24, color: '#00CEC9', animation: 'spin 1s linear infinite' }} />
+            </div>
+          )}
+          <img
+            src={src}
+            alt={alt}
+            crossOrigin="anonymous"
+            style={{ width: '100%', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', objectFit: 'contain', maxHeight: 320, display: 'block', backgroundColor: '#071828' }}
+            onLoad={() => setStatus('loaded')}
+            onError={handleError}
+          />
+        </div>
+      )}
+      {/* Always show direct link as backup */}
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: '#00CEC9', textDecoration: 'none' }}>
+        <Eye style={{ width: 11, height: 11 }} /> Open full size in new tab
+      </a>
+    </div>
+  );
+}
+
+// ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 export default function AdminKYCReviewPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -36,6 +116,8 @@ export default function AdminKYCReviewPage() {
   const [toast, setToast]                     = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [approvedToday, setApprovedToday]     = useState(0);
   const [rejectedToday, setRejectedToday]     = useState(0);
+  const [freshUrls, setFreshUrls]             = useState<{ idUrl: string; faceUrl: string } | null>(null);
+  const [loadingUrls, setLoadingUrls]         = useState(false);
 
   const showToast = (msg: string, type: 'success' | 'error') => {
     setToast({ msg, type });
@@ -46,15 +128,26 @@ export default function AdminKYCReviewPage() {
     if (!authLoading) { loadKYCSubmissions(); loadTodayStats(); }
   }, [authLoading]);
 
+  // When a KYC submission is selected, immediately fetch fresh signed URLs
+  useEffect(() => {
+    if (!selectedKYC) { setFreshUrls(null); return; }
+    const fetchUrls = async () => {
+      setLoadingUrls(true);
+      const urls = await refreshSignedUrls(
+        selectedKYC.government_id_url || '',
+        selectedKYC.face_capture_url  || ''
+      );
+      setFreshUrls(urls);
+      setLoadingUrls(false);
+    };
+    fetchUrls();
+  }, [selectedKYC]);
+
   const loadKYCSubmissions = async () => {
     setLoading(true);
     try {
-      // Read directly via anon client — kyc_select_all RLS allows anon SELECT
       const { createClient } = await import('@supabase/supabase-js');
-      const sb = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
+      const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
       const { data, error } = await sb
         .from('kyc_submissions')
         .select('*, users:user_id(full_name, email, country, phone)')
@@ -67,12 +160,8 @@ export default function AdminKYCReviewPage() {
   };
 
   const loadTodayStats = async () => {
-    // Use supabase client for reads — reads are allowed for anon
     const { createClient } = await import('@supabase/supabase-js');
-    const sb = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
     const today = new Date().toISOString().split('T')[0];
     const [{ count: approved }, { count: rejected }] = await Promise.all([
       sb.from('kyc_submissions').select('*', { count: 'exact', head: true }).eq('status', 'approved').gte('reviewed_at', today),
@@ -82,37 +171,35 @@ export default function AdminKYCReviewPage() {
     setRejectedToday(rejected || 0);
   };
 
-  // ── APPROVE ────────────────────────────────────────────────────────────────
+  const refreshUrls = useCallback(async () => {
+    if (!selectedKYC) return;
+    setLoadingUrls(true);
+    const urls = await refreshSignedUrls(selectedKYC.government_id_url || '', selectedKYC.face_capture_url || '');
+    setFreshUrls(urls);
+    setLoadingUrls(false);
+  }, [selectedKYC]);
+
   const handleApprove = async () => {
     if (!selectedKYC || !user?.id) return;
     setSubmitting(true);
     try {
-      const result = await kycPatch({
-        action:        'approve',
-        submission_id: selectedKYC.id,
-        review_notes:  reviewNotes || '',
-      });
+      const result = await kycPatch({ action: 'approve', submission_id: selectedKYC.id, review_notes: reviewNotes || '' });
       if (!result.success) { showToast('Failed to approve: ' + (result.error || 'Unknown error'), 'error'); return; }
-      showToast('✅ KYC approved! Philanthropist account is ready. Approval email sent.', 'success');
+      showToast('✅ KYC approved! Philanthropist account is ready. Email sent.', 'success');
       setSelectedKYC(null); setReviewNotes(''); setReviewAction(null);
       await loadKYCSubmissions(); await loadTodayStats();
     } catch (e: any) { showToast('Failed to approve: ' + e.message, 'error'); }
     finally { setSubmitting(false); }
   };
 
-  // ── REJECT ─────────────────────────────────────────────────────────────────
   const handleReject = async () => {
     if (!selectedKYC || !user?.id) return;
     if (!rejectionReason.trim()) { showToast('Please provide a rejection reason', 'error'); return; }
     setSubmitting(true);
     try {
-      const result = await kycPatch({
-        action:           'reject',
-        submission_id:    selectedKYC.id,
-        rejection_reason: rejectionReason.trim(),
-      });
+      const result = await kycPatch({ action: 'reject', submission_id: selectedKYC.id, rejection_reason: rejectionReason.trim() });
       if (!result.success) { showToast('Failed to reject: ' + (result.error || 'Unknown error'), 'error'); return; }
-      showToast('KYC rejected. Rejection email sent to applicant.', 'success');
+      showToast('KYC rejected. Email sent to applicant.', 'success');
       setSelectedKYC(null); setRejectionReason(''); setReviewNotes(''); setReviewAction(null);
       await loadKYCSubmissions(); await loadTodayStats();
     } catch (e: any) { showToast('Failed to reject: ' + e.message, 'error'); }
@@ -134,7 +221,7 @@ export default function AdminKYCReviewPage() {
   }
 
   const Toast = () => toast ? (
-    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, padding: '12px 20px', borderRadius: 12, backgroundColor: toast.type === 'success' ? 'rgba(0,184,148,0.15)' : 'rgba(255,107,107,0.15)', border: `1px solid ${toast.type === 'success' ? 'rgba(0,184,148,0.4)' : 'rgba(255,107,107,0.4)'}`, color: toast.type === 'success' ? '#00B894' : '#ff6b6b', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, maxWidth: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, padding: '12px 20px', borderRadius: 12, backgroundColor: toast.type === 'success' ? 'rgba(0,184,148,0.15)' : 'rgba(255,107,107,0.15)', border: `1px solid ${toast.type === 'success' ? 'rgba(0,184,148,0.4)' : 'rgba(255,107,107,0.4)'}`, color: toast.type === 'success' ? '#00B894' : '#ff6b6b', fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, maxWidth: 420, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
       {toast.type === 'success' ? <CheckCircle style={{ width: 16, height: 16, flexShrink: 0 }} /> : <XCircle style={{ width: 16, height: 16, flexShrink: 0 }} />}
       {toast.msg}
     </div>
@@ -144,30 +231,44 @@ export default function AdminKYCReviewPage() {
   if (selectedKYC) {
     const applicantName    = selectedKYC.users?.full_name || 'Unknown';
     const applicantEmail   = selectedKYC.users?.email     || 'Unknown';
-    const applicantCountry = selectedKYC.users?.country   || selectedKYC.country || '—';
-    const applicantPhone   = selectedKYC.users?.phone     || selectedKYC.phone_number || '—';
+    const applicantCountry = selectedKYC.users?.country   || '—';
+    const applicantPhone   = selectedKYC.users?.phone     || '—';
+    const idUrl   = freshUrls?.idUrl   || selectedKYC.government_id_url  || '';
+    const faceUrl = freshUrls?.faceUrl || selectedKYC.face_capture_url   || '';
 
     return (
       <ProtectedRoute>
         <div style={pageStyle}>
           <Toast />
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
             <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0,206,201,0.06) 0%, transparent 70%)', borderRadius: '50%' }} />
           </div>
 
           <header style={{ position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(10,22,40,0.95)', backdropFilter: 'blur(12px)' }}>
-            <div style={{ maxWidth: 900, margin: '0 auto', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button onClick={() => setSelectedKYC(null)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'transparent', color: '#8FA3BF', cursor: 'pointer', fontSize: 13 }}>
-                <ArrowLeft style={{ width: 15, height: 15 }} /> Back
-              </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Shield style={{ width: 18, height: 18, color: '#9B59B6' }} />
-                <span style={{ fontWeight: 700, fontSize: 15 }}>KYC Review — {applicantName}</span>
+            <div style={{ maxWidth: 960, margin: '0 auto', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <button onClick={() => setSelectedKYC(null)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', backgroundColor: 'transparent', color: '#8FA3BF', cursor: 'pointer', fontSize: 13 }}>
+                  <ArrowLeft style={{ width: 15, height: 15 }} /> Back
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Shield style={{ width: 18, height: 18, color: '#9B59B6' }} />
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>KYC Review — {applicantName}</span>
+                </div>
               </div>
+              {/* Refresh URLs button */}
+              <button
+                onClick={refreshUrls}
+                disabled={loadingUrls}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(0,206,201,0.3)', backgroundColor: 'rgba(0,206,201,0.08)', color: '#00CEC9', cursor: loadingUrls ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600, opacity: loadingUrls ? 0.6 : 1 }}
+              >
+                <RefreshCw style={{ width: 13, height: 13, animation: loadingUrls ? 'spin 1s linear infinite' : 'none' }} />
+                {loadingUrls ? 'Loading...' : 'Refresh Images'}
+              </button>
             </div>
           </header>
 
-          <main style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 60px', position: 'relative', zIndex: 10 }}>
+          <main style={{ maxWidth: 960, margin: '0 auto', padding: '28px 20px 60px', position: 'relative', zIndex: 10 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
 
               {/* Applicant info */}
@@ -177,10 +278,10 @@ export default function AdminKYCReviewPage() {
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   {[
-                    { label: 'Full Name',  value: applicantName,    icon: <User     style={{ width: 14, height: 14 }} /> },
-                    { label: 'Email',      value: applicantEmail,   icon: <User     style={{ width: 14, height: 14 }} /> },
-                    { label: 'Country',    value: applicantCountry, icon: <MapPin   style={{ width: 14, height: 14 }} /> },
-                    { label: 'Phone',      value: applicantPhone,   icon: <Phone    style={{ width: 14, height: 14 }} /> },
+                    { label: 'Full Name',  value: applicantName,    icon: <User    style={{ width: 14, height: 14 }} /> },
+                    { label: 'Email',      value: applicantEmail,   icon: <User    style={{ width: 14, height: 14 }} /> },
+                    { label: 'Country',    value: applicantCountry, icon: <MapPin  style={{ width: 14, height: 14 }} /> },
+                    { label: 'Phone',      value: applicantPhone,   icon: <Phone   style={{ width: 14, height: 14 }} /> },
                     { label: 'ID Type',    value: selectedKYC.government_id_type?.replace(/_/g, ' '), icon: <FileText style={{ width: 14, height: 14 }} /> },
                     { label: 'Submitted',  value: new Date(selectedKYC.submitted_at || selectedKYC.created_at).toLocaleString(), icon: <Clock style={{ width: 14, height: 14 }} /> },
                   ].map((f) => (
@@ -188,7 +289,7 @@ export default function AdminKYCReviewPage() {
                       <div style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(0,206,201,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#00CEC9', marginTop: 2 }}>{f.icon}</div>
                       <div>
                         <p style={{ fontSize: 11, color: '#8FA3BF', marginBottom: 2 }}>{f.label}</p>
-                        <p style={{ fontSize: 14, color: 'white', fontWeight: 500, textTransform: f.label === 'ID Type' ? 'capitalize' : 'none' }}>{f.value || '—'}</p>
+                        <p style={{ fontSize: 14, color: 'white', fontWeight: 500, textTransform: f.label === 'ID Type' ? 'capitalize' : 'none', margin: 0 }}>{f.value || '—'}</p>
                       </div>
                     </div>
                   ))}
@@ -197,26 +298,28 @@ export default function AdminKYCReviewPage() {
 
               {/* Documents */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {selectedKYC.government_id_url && (
-                  <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
-                    <h3 style={{ fontSize: 13, fontWeight: 700, color: '#8FA3BF', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <FileText style={{ width: 14, height: 14, color: '#00CEC9' }} /> Government ID
-                    </h3>
-                    <img src={selectedKYC.government_id_url} alt="ID Document" style={{ width: '100%', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', objectFit: 'cover' }} />
+                {loadingUrls ? (
+                  <div style={{ padding: 32, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, flex: 1 }}>
+                    <div style={{ width: 36, height: 36, border: '3px solid rgba(0,206,201,0.2)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                    <p style={{ fontSize: 13, color: '#8FA3BF', margin: 0 }}>Loading documents...</p>
                   </div>
-                )}
-                {selectedKYC.face_capture_url && (
-                  <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
-                    <h3 style={{ fontSize: 13, fontWeight: 700, color: '#8FA3BF', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <User style={{ width: 14, height: 14, color: '#00CEC9' }} /> Face Capture
-                    </h3>
-                    <img src={selectedKYC.face_capture_url} alt="Face Capture" style={{ width: '100%', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', objectFit: 'cover', maxHeight: 280 }} />
-                  </div>
-                )}
-                {!selectedKYC.government_id_url && !selectedKYC.face_capture_url && (
-                  <div style={{ padding: 24, borderRadius: 18, border: '1px solid rgba(255,193,7,0.2)', backgroundColor: 'rgba(255,193,7,0.05)', textAlign: 'center' }}>
-                    <p style={{ fontSize: 13, color: '#ffc107' }}>No documents uploaded</p>
-                  </div>
+                ) : (
+                  <>
+                    {idUrl ? (
+                      <DocImage url={idUrl} alt="Government ID" label="Government ID Document" />
+                    ) : (
+                      <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(255,193,7,0.2)', backgroundColor: 'rgba(255,193,7,0.05)', textAlign: 'center' }}>
+                        <p style={{ fontSize: 13, color: '#ffc107' }}>No ID document uploaded</p>
+                      </div>
+                    )}
+                    {faceUrl ? (
+                      <DocImage url={faceUrl} alt="Face Capture" label="Face Capture / Selfie" />
+                    ) : (
+                      <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(255,193,7,0.2)', backgroundColor: 'rgba(255,193,7,0.05)', textAlign: 'center' }}>
+                        <p style={{ fontSize: 13, color: '#ffc107' }}>No face capture uploaded</p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -226,20 +329,20 @@ export default function AdminKYCReviewPage() {
               <h2 style={{ fontSize: 15, fontWeight: 700, color: 'white', marginBottom: 18 }}>Review Decision</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8FA3BF', marginBottom: 6 }}>Review Notes — will be included in approval email (optional)</label>
-                  <textarea value={reviewNotes} onChange={e => setReviewNotes(e.target.value)} placeholder="Add notes for the applicant or internal records..." rows={3} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8FA3BF', marginBottom: 6 }}>Review Notes — included in approval email (optional)</label>
+                  <textarea value={reviewNotes} onChange={e => setReviewNotes(e.target.value)} placeholder="Add notes for the applicant..." rows={3} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
                 </div>
                 {reviewAction === 'reject' && (
                   <div>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#ff6b6b', marginBottom: 6 }}>Rejection Reason * — will be emailed to applicant</label>
-                    <textarea value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} placeholder="Explain clearly why this application is being rejected. The applicant will receive this in their email." rows={4} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(255,107,107,0.3)', color: 'white', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+                    <textarea value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} placeholder="Explain clearly why this application is being rejected..." rows={4} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(255,107,107,0.3)', color: 'white', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
                   </div>
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <button onClick={() => setReviewAction(reviewAction === 'approve' ? null : 'approve')} style={{ padding: '12px', borderRadius: 12, border: `2px solid ${reviewAction === 'approve' ? 'rgba(0,184,148,0.6)' : 'rgba(0,184,148,0.2)'}`, backgroundColor: reviewAction === 'approve' ? 'rgba(0,184,148,0.15)' : 'transparent', color: '#00B894', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <button onClick={() => setReviewAction(reviewAction === 'approve' ? null : 'approve')} style={{ padding: '13px', borderRadius: 12, border: `2px solid ${reviewAction === 'approve' ? 'rgba(0,184,148,0.6)' : 'rgba(0,184,148,0.2)'}`, backgroundColor: reviewAction === 'approve' ? 'rgba(0,184,148,0.15)' : 'transparent', color: '#00B894', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                     <CheckCircle style={{ width: 18, height: 18 }} /> Approve
                   </button>
-                  <button onClick={() => setReviewAction(reviewAction === 'reject' ? null : 'reject')} style={{ padding: '12px', borderRadius: 12, border: `2px solid ${reviewAction === 'reject' ? 'rgba(255,107,107,0.6)' : 'rgba(255,107,107,0.2)'}`, backgroundColor: reviewAction === 'reject' ? 'rgba(255,107,107,0.15)' : 'transparent', color: '#ff6b6b', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <button onClick={() => setReviewAction(reviewAction === 'reject' ? null : 'reject')} style={{ padding: '13px', borderRadius: 12, border: `2px solid ${reviewAction === 'reject' ? 'rgba(255,107,107,0.6)' : 'rgba(255,107,107,0.2)'}`, backgroundColor: reviewAction === 'reject' ? 'rgba(255,107,107,0.15)' : 'transparent', color: '#ff6b6b', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                     <XCircle style={{ width: 18, height: 18 }} /> Reject
                   </button>
                 </div>
@@ -261,12 +364,12 @@ export default function AdminKYCReviewPage() {
     <ProtectedRoute>
       <div style={pageStyle}>
         <Toast />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 600, height: 600, background: 'radial-gradient(circle, rgba(108,63,200,0.06) 0%, transparent 70%)', borderRadius: '50%' }} />
         </div>
-
         <header style={{ position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(10,22,40,0.95)', backdropFilter: 'blur(12px)' }}>
-          <div style={{ maxWidth: 900, margin: '0 auto', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ maxWidth: 960, margin: '0 auto', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Image src="/Charity token logo.jpg" alt="Charity Token" width={32} height={32} style={{ borderRadius: 8 }} />
               <span style={{ fontWeight: 700, fontSize: 15 }}>Charity Token</span>
@@ -277,13 +380,11 @@ export default function AdminKYCReviewPage() {
             </button>
           </div>
         </header>
-
-        <main style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 60px', position: 'relative', zIndex: 10 }}>
+        <main style={{ maxWidth: 960, margin: '0 auto', padding: '28px 20px 60px', position: 'relative', zIndex: 10 }}>
           <div style={{ marginBottom: 24 }}>
             <h1 style={{ fontSize: 'clamp(22px, 4vw, 30px)', fontWeight: 800, marginBottom: 4 }}>KYC Review</h1>
-            <p style={{ fontSize: 13, color: '#8FA3BF' }}>Review and approve or reject philanthropist KYC submissions. Applicants are notified by email.</p>
+            <p style={{ fontSize: 13, color: '#8FA3BF' }}>Review and approve or reject philanthropist KYC submissions. Documents load instantly when you open a review. Applicants are notified by email.</p>
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
             {[
               { label: 'Pending Reviews', value: kycSubmissions.length, color: '#ffc107', bg: 'rgba(255,193,7,0.1)', border: 'rgba(255,193,7,0.2)', icon: <Clock style={{ width: 20, height: 20, color: '#ffc107' }} /> },
@@ -292,23 +393,15 @@ export default function AdminKYCReviewPage() {
             ].map((stat) => (
               <div key={stat.label} style={{ padding: '18px 16px', borderRadius: 16, border: `1px solid ${stat.border}`, backgroundColor: stat.bg, display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{stat.icon}</div>
-                <div>
-                  <p style={{ fontSize: 26, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
-                  <p style={{ fontSize: 12, color: '#8FA3BF', marginTop: 3 }}>{stat.label}</p>
-                </div>
+                <div><p style={{ fontSize: 26, fontWeight: 800, color: stat.color, lineHeight: 1, margin: 0 }}>{stat.value}</p><p style={{ fontSize: 12, color: '#8FA3BF', marginTop: 3 }}>{stat.label}</p></div>
               </div>
             ))}
           </div>
-
           <div style={{ borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
             <div style={{ padding: '18px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
               <Users style={{ width: 16, height: 16, color: '#00CEC9' }} />
               <h2 style={{ fontSize: 15, fontWeight: 700, color: 'white', margin: 0 }}>Pending KYC Submissions</h2>
-              {kycSubmissions.length > 0 && (
-                <span style={{ marginLeft: 'auto', fontSize: 12, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(255,193,7,0.15)', color: '#ffc107', fontWeight: 700, border: '1px solid rgba(255,193,7,0.3)' }}>
-                  {kycSubmissions.length} pending
-                </span>
-              )}
+              {kycSubmissions.length > 0 && <span style={{ marginLeft: 'auto', fontSize: 12, padding: '3px 10px', borderRadius: 999, backgroundColor: 'rgba(255,193,7,0.15)', color: '#ffc107', fontWeight: 700, border: '1px solid rgba(255,193,7,0.3)' }}>{kycSubmissions.length} pending</span>}
             </div>
             {kycSubmissions.length === 0 ? (
               <div style={{ padding: '48px 20px', textAlign: 'center' }}>
@@ -334,10 +427,14 @@ export default function AdminKYCReviewPage() {
                           <span style={{ fontSize: 12, color: '#8FA3BF' }}>{email}</span>
                           {country !== '—' && <span style={{ fontSize: 12, color: '#8FA3BF', display: 'flex', alignItems: 'center', gap: 4 }}><MapPin style={{ width: 11, height: 11 }} />{country}</span>}
                           <span style={{ fontSize: 12, color: '#8FA3BF', display: 'flex', alignItems: 'center', gap: 4 }}><Clock style={{ width: 11, height: 11 }} />{new Date(submitted).toLocaleDateString()}</span>
+                          <span style={{ fontSize: 11, color: '#ffc107' }}>{kyc.government_id_type?.replace(/_/g, ' ')}</span>
                         </div>
                       </div>
                       <span style={{ fontSize: 11, padding: '4px 10px', borderRadius: 999, backgroundColor: 'rgba(255,193,7,0.15)', color: '#ffc107', fontWeight: 600, border: '1px solid rgba(255,193,7,0.3)', flexShrink: 0 }}>Pending</span>
-                      <button onClick={() => { setSelectedKYC(kyc); setReviewAction(null); setReviewNotes(''); setRejectionReason(''); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                      <button
+                        onClick={() => { setSelectedKYC(kyc); setReviewAction(null); setReviewNotes(''); setRejectionReason(''); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 10, background: 'linear-gradient(to right, #00CEC9, #00B894)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer', flexShrink: 0, boxShadow: '0 4px 16px rgba(0,206,201,0.25)' }}
+                      >
                         <Eye style={{ width: 14, height: 14 }} /> Review
                       </button>
                     </div>
