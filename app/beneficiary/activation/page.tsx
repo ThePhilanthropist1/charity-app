@@ -40,10 +40,33 @@ export default function ActivationPage() {
                   Charity Account
                 </span>
               </h1>
-              <p style={{ color: '#8FA3BF', fontSize: 14, lineHeight: 1.7 }}>
+              <p style={{ color: '#8FA3BF', fontSize: 14, lineHeight: 1.7, marginBottom: 20 }}>
                 Choose a payment method below to activate and start receiving<br />500 Charity Tokens every month for 10 years.
               </p>
+
+              {/* HOW WE USE YOUR $1 BUTTON */}
+              <Link href="/how-we-use-your-dollar" style={{ textDecoration: 'none' }}>
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 10,
+                  padding: '14px 28px', borderRadius: 14,
+                  background: 'linear-gradient(135deg, rgba(255,208,0,0.12), rgba(0,206,201,0.08))',
+                  border: '1.5px solid rgba(255,208,0,0.35)',
+                  cursor: 'pointer', marginBottom: 8,
+                  transition: 'all 0.2s ease',
+                }}>
+                  <span style={{ fontSize: 18 }}>💡</span>
+                  <div style={{ textAlign: 'left' }}>
+                    <p style={{ fontSize: 14, fontWeight: 800, color: '#FFD000', margin: 0, letterSpacing: 0.2 }}>
+                      Wondering where your $1 goes?
+                    </p>
+                    <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, marginTop: 2 }}>
+                      See our full transparent fund allocation →
+                    </p>
+                  </div>
+                </div>
+              </Link>
             </div>
+
             <BeneficiaryActivationFlow />
           </div>
         </main>
@@ -52,10 +75,10 @@ export default function ActivationPage() {
         <footer style={{ position: 'relative', zIndex: 10, borderTop: '1px solid rgba(255,255,255,0.06)', padding: '18px 20px', textAlign: 'center' }}>
           <p style={{ fontSize: 12, color: '#4A5568', marginBottom: 10 }}>© 2026 Charity Token Project. All rights reserved.</p>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <Link href="/terms" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)', transition: 'all 0.2s' }}>
+            <Link href="/terms" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
               Terms of Service
             </Link>
-            <Link href="/privacy" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)', transition: 'all 0.2s' }}>
+            <Link href="/privacy" style={{ fontSize: 12, color: '#8FA3BF', textDecoration: 'none', padding: '5px 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
               Privacy Policy
             </Link>
           </div>
