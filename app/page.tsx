@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Coins, Users, Shield, ArrowRight, Globe, FileText, XCircle } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { PWAInstallFAB, PWAInstallBanner, PWAInstallCard } from '@/components/pwa-install-button';
 
 const MAX_BENEFICIARIES = 1000000;
 
@@ -62,6 +63,9 @@ export default function HomePage() {
             </button>
           </div>
         </div>
+
+        {/* PWA INSTALL BANNER — just below the nav */}
+        <PWAInstallBanner />
       </header>
 
       {/* MAIN */}
@@ -168,6 +172,11 @@ export default function HomePage() {
             ))}
           </div>
 
+          {/* ── PWA INSTALL CARD ── */}
+          <div style={{ marginBottom: 24 }}>
+            <PWAInstallCard />
+          </div>
+
           {/* WHITEPAPER BANNER */}
           <a href="/whitepaper.pdf" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.3)', background: 'linear-gradient(135deg, rgba(0,206,201,0.08) 0%, rgba(0,184,148,0.08) 100%)', textDecoration: 'none', marginBottom: 24, cursor: 'pointer' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -204,6 +213,9 @@ export default function HomePage() {
           </Link>
         </div>
       </footer>
+
+      {/* PWA FLOATING BUTTON — visible on all pages */}
+      <PWAInstallFAB />
 
     </div>
   );

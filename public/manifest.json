@@ -1,0 +1,32 @@
+{
+  "name": "Charity Token",
+  "short_name": "CharityToken",
+  "description": "Receive 500 Charity Tokens every month for 10 years. Join 1,000,000 people building the future of digital giving.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020C1B",
+  "theme_color": "#00CEC9",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/icon-72.png",   "sizes": "72x72",   "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-96.png",   "sizes": "96x96",   "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-128.png",  "sizes": "128x128", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-144.png",  "sizes": "144x144", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-152.png",  "sizes": "152x152", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-192.png",  "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-384.png",  "sizes": "384x384", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png",  "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/screen1.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Charity Token Dashboard"
+    }
+  ],
+  "categories": ["finance", "social"],
+  "lang": "en",
+  "scope": "/"
+}
