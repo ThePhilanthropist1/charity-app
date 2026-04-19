@@ -18,16 +18,14 @@ const ACT_INITIAL_BALANCE = 1000;
 const REFILL_COST_USD = 70;
 const REFILL_ACT_AMOUNT = 1000;
 const USDT_CONTRACT = '0x55d398326f99059ff775485246999027b3197955';
+const WA_GROUP_URL = 'https://chat.whatsapp.com/Em5uD6swwrpA2wu8d9B9xf?mode=gi_t';
+const WA_MAX_SHOWS = 5;
+const WA_STORAGE_KEY = (userId: string) => `wa_popup_shown_${userId}`;
 
-// ── GET AUTH TOKEN FROM LOCALSTORAGE ─────────────────────────────────────────
 function getAuthToken(): string {
-  try {
-    return localStorage.getItem('auth_token') || '';
-  } catch { }
-  return '';
+  try { return localStorage.getItem('auth_token') || ''; } catch { return ''; }
 }
 
-// ── PHILANTHROPIST RECORD ────────────────────────────────────────────────────
 async function getPhilRecord(userId: string) {
   const { data: byUserId } = await supabase.from('philanthropists').select('*').eq('user_id', userId).maybeSingle();
   if (byUserId) return byUserId;
@@ -35,51 +33,99 @@ async function getPhilRecord(userId: string) {
   return byId || null;
 }
 
-// ── DEDUCT ACT BALANCE ────────────────────────────────────────────────────────
 async function deductACT(userId: string, currentBalance: number) {
   const record = await getPhilRecord(userId);
   if (!record) throw new Error('Philanthropist record not found for user: ' + userId);
   const newBalance = currentBalance - ACT_PER_ACTIVATION;
-  const { error } = await supabase
-    .from('philanthropists')
-    .update({ act_balance: newBalance, updated_at: new Date().toISOString() })
-    .eq('id', record.id);
+  const { error } = await supabase.from('philanthropists').update({ act_balance: newBalance, updated_at: new Date().toISOString() }).eq('id', record.id);
   if (error) throw error;
   return { newBalance };
 }
 
-// ── ACTIVATE BENEFICIARY — via API route (uses supabaseAdmin server-side) ────
-async function activateBeneficiary(
-  targetUserId: string,
-  _philanthropistId: string
-): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
+async function activateBeneficiary(targetUserId: string, _philanthropistId: string): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
   const token = getAuthToken();
   if (!token) return { success: false, alreadyActive: false, error: 'Not authenticated. Please log in again.' };
-
   try {
     const res = await fetch('/api/philanthropist-activate', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ targetUserId, action: 'activate' }),
     });
-
     const data = await res.json();
-
-    if (res.status === 409 && data.error === 'already_active') {
-      return { success: false, alreadyActive: true };
-    }
-    if (!data.success) {
-      return { success: false, alreadyActive: false, error: data.error || 'Activation failed' };
-    }
+    if (res.status === 409 && data.error === 'already_active') return { success: false, alreadyActive: true };
+    if (!data.success) return { success: false, alreadyActive: false, error: data.error || 'Activation failed' };
     return { success: true, alreadyActive: false };
   } catch (e: any) {
     return { success: false, alreadyActive: false, error: e.message || 'Network error' };
   }
 }
 
+// ── WHATSAPP POPUP ────────────────────────────────────────────────────────────
+function WhatsAppPopup({ onClose, showCount }: { onClose: () => void; showCount: number }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 300, backdropFilter: 'blur(8px)' }}>
+      <div style={{ width: '100%', maxWidth: 440, backgroundColor: '#0F1F35', border: '1px solid rgba(37,211,102,0.3)', borderRadius: 24, padding: 32, boxShadow: '0 40px 80px rgba(0,0,0,0.7)', position: 'relative', overflow: 'hidden' }}>
+        {/* Top green bar */}
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(to right, #25D366, #128C7E)' }} />
+        {/* Glow */}
+        <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'radial-gradient(circle, rgba(37,211,102,0.08) 0%, transparent 70%)', pointerEvents: 'none' }} />
+
+        {/* Close */}
+        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 30, height: 30, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.06)', border: 'none', color: '#8FA3BF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <X style={{ width: 14, height: 14 }} />
+        </button>
+
+        {/* Icon */}
+        <div style={{ width: 68, height: 68, borderRadius: 20, background: 'linear-gradient(135deg, #25D366, #128C7E)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', boxShadow: '0 8px 32px rgba(37,211,102,0.3)', fontSize: 32 }}>
+          💬
+        </div>
+
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <p style={{ fontSize: 11, color: '#25D366', fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8 }}>Nigeria Philanthropists</p>
+          <h2 style={{ fontSize: 22, fontWeight: 900, color: 'white', marginBottom: 10, lineHeight: 1.2 }}>
+            Join Our Nigeria<br />WhatsApp Group
+          </h2>
+          <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.75 }}>
+            Connect with fellow Nigerian philanthropists, share strategies, get support, and stay updated on the latest Charity Token news directly on WhatsApp.
+          </p>
+        </div>
+
+        {/* Features */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+          {[
+            { icon: '🤝', text: 'Network with other Nigerian philanthropists' },
+            { icon: '📢', text: 'Get real-time updates and announcements' },
+            { icon: '💡', text: 'Share tips and activation strategies' },
+          ].map((f) => (
+            <div key={f.text} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, backgroundColor: 'rgba(37,211,102,0.05)', border: '1px solid rgba(37,211,102,0.12)' }}>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>{f.icon}</span>
+              <span style={{ fontSize: 13, color: '#B8D4E0' }}>{f.text}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Buttons */}
+        <a
+          href={WA_GROUP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={onClose}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, width: '100%', padding: '15px', borderRadius: 14, background: 'linear-gradient(135deg, #25D366, #128C7E)', color: 'white', fontWeight: 800, fontSize: 15, textDecoration: 'none', marginBottom: 10, boxShadow: '0 8px 28px rgba(37,211,102,0.3)' }}
+        >
+          <span style={{ fontSize: 18 }}>💬</span> Join WhatsApp Group
+        </a>
+        <button
+          onClick={onClose}
+          style={{ width: '100%', padding: '12px', borderRadius: 12, backgroundColor: 'transparent', border: '1px solid rgba(255,255,255,0.08)', color: '#8FA3BF', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+        >
+          Maybe later {showCount < WA_MAX_SHOWS ? `(shows ${WA_MAX_SHOWS - showCount} more time${WA_MAX_SHOWS - showCount !== 1 ? 's' : ''})` : ''}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN DASHBOARD ────────────────────────────────────────────────────────────
 export default function PhilanthropistDashboardPage() {
   const router = useRouter();
   const { user, loading: authLoading, signOut } = useAuth();
@@ -93,6 +139,8 @@ export default function PhilanthropistDashboardPage() {
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [showRefill, setShowRefill] = useState(false);
+  const [showWaPopup, setShowWaPopup] = useState(false);
+  const [waShowCount, setWaShowCount] = useState(0);
   const realtimeChannel = useRef<any>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -100,12 +148,33 @@ export default function PhilanthropistDashboardPage() {
     setTimeout(() => setToast(null), 5000);
   };
 
+  // ── WHATSAPP POPUP LOGIC ────────────────────────────────────────────────────
+  const checkAndShowWaPopup = (u: any) => {
+    // Only show to Nigerian philanthropists
+    const isNigerian = (u.country || '').toLowerCase().includes('nigeria');
+    if (!isNigerian) return;
+
+    const key = WA_STORAGE_KEY(u.id);
+    const stored = parseInt(localStorage.getItem(key) || '0', 10);
+    if (stored >= WA_MAX_SHOWS) return; // Already shown 5 times, never again
+
+    // Show after a short delay so dashboard loads first
+    setTimeout(() => {
+      setWaShowCount(stored + 1);
+      setShowWaPopup(true);
+      localStorage.setItem(key, String(stored + 1));
+    }, 1200);
+  };
+
+  const handleWaClose = () => setShowWaPopup(false);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) { router.push('/login'); return; }
     const allowed = user.role === 'philanthropist' || user.role === 'admin' || user.email?.toLowerCase() === 'dinfadashe@gmail.com';
     if (!allowed) { router.push('/beneficiary-dashboard'); return; }
     loadAll();
+    checkAndShowWaPopup(user);
 
     realtimeChannel.current = supabase
       .channel('phil-stats-' + user.id)
@@ -176,10 +245,7 @@ export default function PhilanthropistDashboardPage() {
       const token = getAuthToken();
       const res = await fetch('/api/philanthropist-activate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ targetUserId, action: 'reject' }),
       });
       const data = await res.json();
@@ -213,6 +279,9 @@ export default function PhilanthropistDashboardPage() {
     <ProtectedRoute>
       <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif' }}>
 
+        {/* WHATSAPP POPUP */}
+        {showWaPopup && <WhatsAppPopup onClose={handleWaClose} showCount={waShowCount} />}
+
         {toast && (
           <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 1000, padding: '14px 20px', borderRadius: 14, backgroundColor: toastBg, border: `2px solid ${toastBorder}`, color: toastColor, fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'flex-start', gap: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.5)', maxWidth: 420 }}>
             <div style={{ flexShrink: 0, marginTop: 1 }}>{toast.type === 'success' ? <CheckCircle style={{ width: 18, height: 18 }} /> : <AlertCircle style={{ width: 18, height: 18 }} />}</div>
@@ -242,6 +311,17 @@ export default function PhilanthropistDashboardPage() {
               <span style={{ fontSize: 11, color: '#00B894', backgroundColor: 'rgba(0,184,148,0.15)', padding: '3px 10px', borderRadius: 999, border: '1px solid rgba(0,184,148,0.3)', fontWeight: 700 }}>PHILANTHROPIST</span>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
+              {/* WhatsApp button in header for easy access */}
+              {(user?.country || '').toLowerCase().includes('nigeria') && (
+                <a
+                  href={WA_GROUP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 14px', borderRadius: 10, border: '1px solid rgba(37,211,102,0.3)', color: '#25D366', background: 'rgba(37,211,102,0.06)', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  💬 Nigeria Group
+                </a>
+              )}
               <button onClick={() => router.push('/beneficiary-dashboard')} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 14px', borderRadius: 10, border: '1px solid rgba(0,206,201,0.2)', color: '#67e8f9', background: 'transparent', cursor: 'pointer' }}><Home style={{ width: 13, height: 13 }} /> My Dashboard</button>
               <button onClick={signOut} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.1)', color: '#8FA3BF', background: 'transparent', cursor: 'pointer' }}><LogOut style={{ width: 13, height: 13 }} /> Sign Out</button>
             </div>
@@ -468,10 +548,8 @@ function ActivateByEmail({ userId, actBalance, onSuccess, onAlreadyActive, onErr
 }
 
 function RefillModal({ onClose, onSuccess, userId, currentBalance }: {
-  onClose: () => void;
-  onSuccess: (newBalance: number) => void;
-  userId: string;
-  currentBalance: number;
+  onClose: () => void; onSuccess: (newBalance: number) => void;
+  userId: string; currentBalance: number;
 }) {
   const [txHash, setTxHash] = useState('');
   const [copied, setCopied] = useState(false);
