@@ -71,8 +71,16 @@ async function sendEmail(to: string, name: string): Promise<boolean> {
         html,
       }),
     });
-    return res.ok;
-  } catch { return false; }
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[reminders] Failed for ${to}: ${res.status} ${err}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`[reminders] Exception for ${to}:`, e);
+    return false;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -122,23 +130,29 @@ export async function POST(request: NextRequest) {
 
     let sent = 0, failed = 0;
 
-    // Send emails in batches of 10 to avoid rate limits
-    const BATCH = 10;
-    for (let i = 0; i < toNotify.length; i += BATCH) {
-      const batch = toNotify.slice(i, i + BATCH);
-      await Promise.all(batch.map(async (u) => {
-        const name = u.full_name?.split(' ')[0] || 'there';
-        const ok = await sendEmail(u.email, name);
-        if (ok) sent++; else failed++;
-      }));
-      // Small delay between batches
-      if (i + BATCH < toNotify.length) {
-        await new Promise(r => setTimeout(r, 500));
-      }
+    // Resend free plan: 100 emails/day, max 10/second
+    // Send one at a time with 120ms gap = ~8/second, safe within limits
+    const DAILY_LIMIT = 100;
+    const toSend = toNotify.slice(0, DAILY_LIMIT); // cap at 100 per run
+
+    for (const u of toSend) {
+      const name = u.full_name?.split(' ')[0] || 'there';
+      const ok = await sendEmail(u.email, name);
+      if (ok) sent++; else failed++;
+      await new Promise(r => setTimeout(r, 120)); // 120ms between each
     }
 
+    const skipped = Math.max(0, toNotify.length - DAILY_LIMIT);
+
     console.log(`[reminders] Sent: ${sent}, Failed: ${failed}, Total: ${toNotify.length}`);
-    return NextResponse.json({ success: true, sent, failed, total: toNotify.length });
+    return NextResponse.json({
+      success: true, sent, failed,
+      total: toNotify.length,
+      skipped: typeof skipped !== 'undefined' ? skipped : 0,
+      message: sent > 0
+        ? `Sent ${sent} emails successfully.${failed > 0 ? ` ${failed} failed — check Netlify logs.` : ''}${typeof skipped !== 'undefined' && skipped > 0 ? ` ${skipped} deferred to next run (daily limit).` : ''}`
+        : 'No emails sent.',
+    });
 
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';

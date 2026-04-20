@@ -119,7 +119,7 @@ export default function AdminMainDashboardPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setReminderResult(`✅ Sent to ${data.sent} users. ${data.failed > 0 ? `${data.failed} failed.` : ''}`);
+        setReminderResult(data.message || `✅ Sent to ${data.sent} users.`);
       } else {
         setReminderResult(`❌ Failed: ${data.error}`);
       }
