@@ -11,7 +11,7 @@ import Image from 'next/image';
 import {
   Users, Shield, Clock, Coins, LogOut, X, Trash2,
   ChevronRight, BarChart3, AlertCircle, Eye, Home,
-  CheckCircle, UserX, Download, FileSpreadsheet
+  CheckCircle, UserX, Download, FileSpreadsheet, Send
 } from 'lucide-react';
 
 export default function AdminMainDashboardPage() {
@@ -37,6 +37,8 @@ export default function AdminMainDashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'activated' | 'unactivated' | 'philanthropist' | 'admin'>('all');
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [sendingReminders, setSendingReminders] = useState(false);
+  const [reminderResult, setReminderResult] = useState<string>('');
 
   useEffect(() => {
     if (authLoading) return;
@@ -106,6 +108,26 @@ export default function AdminMainDashboardPage() {
     } catch (error: any) { alert('Failed to delete user: ' + error.message); }
   };
 
+  // ── SEND ACTIVATION REMINDER EMAILS ─────────────────────────────────────────
+  const sendActivationReminders = async () => {
+    setSendingReminders(true); setReminderResult('');
+    try {
+      const token = localStorage.getItem('auth_token') || '';
+      const res = await fetch('/api/send-activation-reminders', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setReminderResult(`✅ Sent to ${data.sent} users. ${data.failed > 0 ? `${data.failed} failed.` : ''}`);
+      } else {
+        setReminderResult(`❌ Failed: ${data.error}`);
+      }
+    } catch (e: any) {
+      setReminderResult('❌ Network error. Please try again.');
+    } finally { setSendingReminders(false); }
+  };
+
   // ── EXPORT PHILANTHROPIST ACTIVITY TO CSV ──────────────────────────────────
   const exportPhilanthropistCSV = async (phil: any) => {
     setExportingId(phil.id);
@@ -115,7 +137,7 @@ export default function AdminMainDashboardPage() {
         .from('beneficiary_activations')
         .select(`
           id, payment_status, activation_method, activated_at, created_at,
-          transaction_hash, amount_paid, currency,
+          transaction_hash,
           users:user_id (
             id, full_name, email, country, phone,
             username, created_at, updated_at, is_active, role
@@ -200,8 +222,6 @@ export default function AdminMainDashboardPage() {
         'Beneficiary User ID',
         'Payment Status',
         'Activation Method',
-        'Amount Paid',
-        'Currency',
         'Transaction Hash',
         'Activated At',
         'Record Created',
@@ -222,8 +242,6 @@ export default function AdminMainDashboardPage() {
           ben.id         || 'N/A',
           a.payment_status       || 'N/A',
           a.activation_method?.replace(/_/g, ' ') || 'N/A',
-          a.amount_paid          ?? 'N/A',
-          a.currency             || 'N/A',
           a.transaction_hash     || 'N/A',
           a.activated_at  ? new Date(a.activated_at).toLocaleString('en-GB')  : 'N/A',
           a.created_at    ? new Date(a.created_at).toLocaleString('en-GB')    : 'N/A',
@@ -397,6 +415,37 @@ export default function AdminMainDashboardPage() {
               </button>
             </div>
             <StatsBanner activeLast24h={bannerStats.activeLast24h} totalActivated={bannerStats.totalActivated} activePhilanthropists={bannerStats.activePhilanthropists} goalPercent={bannerStats.goalPercent} generatedAt={bannerStats.generatedAt} />
+          </div>
+
+          {/* ── ACTIVATION REMINDERS ─────────────────────────────────────────────── */}
+          <div style={{ padding: '22px 24px', borderRadius: 20, border: '1px solid rgba(0,206,201,0.18)', backgroundColor: 'rgba(255,255,255,0.02)', marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 4, height: 18, backgroundColor: '#0088cc', borderRadius: 2, display: 'inline-block' }} />
+                  Send Activation Reminders
+                </p>
+                <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>
+                  Email all <strong style={{ color: '#ff6b6b' }}>{stats.unactivated_users}</strong> unactivated users with a Telegram button to contact a philanthropist and pay $1 to activate.
+                </p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                <button
+                  onClick={sendActivationReminders}
+                  disabled={sendingReminders || stats.unactivated_users === 0}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 22px', borderRadius: 12, background: sendingReminders ? 'rgba(0,136,204,0.15)' : 'linear-gradient(135deg,#0088cc,#229ED9)', color: sendingReminders ? '#0088cc' : 'white', fontWeight: 700, fontSize: 14, border: sendingReminders ? '1px solid rgba(0,136,204,0.3)' : 'none', cursor: (sendingReminders || stats.unactivated_users === 0) ? 'not-allowed' : 'pointer', boxShadow: sendingReminders ? 'none' : '0 6px 20px rgba(0,136,204,0.3)', opacity: stats.unactivated_users === 0 ? 0.5 : 1 }}>
+                  {sendingReminders
+                    ? <><div style={{ width: 14, height: 14, border: '2px solid rgba(0,136,204,0.3)', borderTop: '2px solid #0088cc', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Sending…</>
+                    : <><span style={{ fontSize: 16 }}>💬</span> Send Telegram Reminder Emails</>
+                  }
+                </button>
+                {reminderResult && (
+                  <p style={{ fontSize: 12, color: reminderResult.startsWith('✅') ? '#00B894' : '#ff6b6b', margin: 0, fontWeight: 600 }}>
+                    {reminderResult}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* ── PHILANTHROPIST ACTIVITY REPORTS ──────────────────────────────────── */}
