@@ -7,8 +7,6 @@ const TELEGRAM   = 'https://t.me/Tribe_Visionary';
 
 // Simple auth — only allow calls with the correct secret
 // Set CRON_SECRET in Netlify env vars to any random string
-const CRON_SECRET = process.env.CRON_SECRET || '';
-
 async function sendEmail(to: string, name: string): Promise<boolean> {
   if (!RESEND_KEY) return false;
   const html = `<!DOCTYPE html>
@@ -78,10 +76,25 @@ async function sendEmail(to: string, name: string): Promise<boolean> {
 }
 
 export async function POST(request: NextRequest) {
-  // Auth check
-  const auth = request.headers.get('authorization');
-  if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
+  // Auth check — must be admin
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const token = authHeader.replace('Bearer ', '').trim();
+
+  // Dynamically import to avoid circular deps
+  const { verifyToken } = await import('@/lib/auth');
+  const { userId, valid } = verifyToken(token);
+  if (!valid || !userId) {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+
+  const { data: adminUser } = await supabaseAdmin
+    .from('users').select('role, email').eq('id', userId).single();
+  const isAdmin = adminUser?.role === 'admin' || adminUser?.email?.toLowerCase() === 'dinfadashe@gmail.com';
+  if (!isAdmin) {
+    return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
   }
 
   try {
@@ -132,9 +145,4 @@ export async function POST(request: NextRequest) {
     console.error('[reminders] Error:', msg);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
-}
-
-// Also allow GET for easy manual trigger from browser
-export async function GET(request: NextRequest) {
-  return POST(request);
 }
