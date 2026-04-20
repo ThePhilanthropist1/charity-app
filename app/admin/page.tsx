@@ -10,7 +10,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   Users, Shield, Clock, Coins, LogOut, X, Trash2,
-  ChevronRight, BarChart3, AlertCircle, Eye, Home, CheckCircle, UserX
+  ChevronRight, BarChart3, AlertCircle, Eye, Home,
+  CheckCircle, UserX, Download, FileSpreadsheet
 } from 'lucide-react';
 
 export default function AdminMainDashboardPage() {
@@ -35,6 +36,7 @@ export default function AdminMainDashboardPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'activated' | 'unactivated' | 'philanthropist' | 'admin'>('all');
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -65,37 +67,16 @@ export default function AdminMainDashboardPage() {
   const loadDashboard = async () => {
     try {
       setLoading(true);
-
-      // Load all users
       const { data: allUsers } = await supabase.from('users').select('*').order('created_at', { ascending: false });
-
-      // Load all activations
-      const { data: allActivations } = await supabase
-        .from('beneficiary_activations')
-        .select('*');
-
-      // Build activation map: user_id -> activation record
+      const { data: allActivations } = await supabase.from('beneficiary_activations').select('*');
       const actMap: Record<string, any> = {};
       (allActivations || []).forEach(a => { actMap[a.user_id] = a; });
       setActivationMap(actMap);
-
-      // Load philanthropist activation counts (how many beneficiaries each phil activated)
-      const { data: philActivations } = await supabase
-        .from('beneficiary_activations')
-        .select('philanthropist_id')
-        .eq('payment_status', 'verified')
-        .not('philanthropist_id', 'is', null);
-
+      const { data: philActivations } = await supabase.from('beneficiary_activations').select('philanthropist_id').eq('payment_status', 'verified').not('philanthropist_id', 'is', null);
       const philMap: Record<string, number> = {};
-      (philActivations || []).forEach(a => {
-        if (a.philanthropist_id) {
-          philMap[a.philanthropist_id] = (philMap[a.philanthropist_id] || 0) + 1;
-        }
-      });
+      (philActivations || []).forEach(a => { if (a.philanthropist_id) philMap[a.philanthropist_id] = (philMap[a.philanthropist_id] || 0) + 1; });
       setPhilanthropistMap(philMap);
-
       setUsers(allUsers || []);
-
       const activeCount = Object.values(actMap).filter(a => a.payment_status === 'verified').length;
       const unactivatedCount = (allUsers || []).filter(u => u.role === 'beneficiary' && !actMap[u.id]).length;
       const philanthropists = (allUsers || []).filter(u => u.role === 'philanthropist');
@@ -103,14 +84,10 @@ export default function AdminMainDashboardPage() {
       const { count: pendingKyc } = await supabase.from('kyc_submissions').select('*', { count: 'exact', head: true }).eq('status', 'pending');
       const { data: distributions } = await supabase.from('token_transactions').select('amount').eq('transaction_type', 'distribution');
       const totalDistributed = (distributions || []).reduce((sum, d) => sum + (d.amount || 0), 0);
-
       setStats({
-        total_beneficiaries: activeCount,
-        active_beneficiaries: activeCount,
-        total_philanthropists: philanthropists.length,
-        approved_philanthropists: approvedPhil || 0,
-        pending_kyc: pendingKyc || 0,
-        total_tokens_distributed: totalDistributed,
+        total_beneficiaries: activeCount, active_beneficiaries: activeCount,
+        total_philanthropists: philanthropists.length, approved_philanthropists: approvedPhil || 0,
+        pending_kyc: pendingKyc || 0, total_tokens_distributed: totalDistributed,
         unactivated_users: unactivatedCount,
       });
       await loadBannerStats();
@@ -129,39 +106,201 @@ export default function AdminMainDashboardPage() {
     } catch (error: any) { alert('Failed to delete user: ' + error.message); }
   };
 
-  // Filter users based on role filter + search
+  // ── EXPORT PHILANTHROPIST ACTIVITY TO CSV ──────────────────────────────────
+  const exportPhilanthropistCSV = async (phil: any) => {
+    setExportingId(phil.id);
+    try {
+      // Fetch all activations done by this philanthropist with beneficiary details
+      const { data: activations, error } = await supabase
+        .from('beneficiary_activations')
+        .select(`
+          id, payment_status, activation_method, activated_at, created_at,
+          transaction_hash, amount_paid, currency,
+          users:user_id (
+            id, full_name, email, country, phone,
+            username, date_of_birth, gender, address,
+            state, city, postal_code, occupation,
+            whatsapp_number, telegram_username, twitter_handle,
+            created_at, updated_at, is_active, role
+          )
+        `)
+        .eq('philanthropist_id', phil.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Also fetch philanthropist's own KYC info
+      const { data: kycData } = await supabase
+        .from('kyc_submissions')
+        .select('status, submitted_at, reviewed_at, government_id_type')
+        .eq('user_id', phil.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      // ── BUILD CSV ────────────────────────────────────────────────────────
+      const now = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+      const escape = (v: any) => {
+        if (v === null || v === undefined) return '';
+        const s = String(v);
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      };
+
+      const rows: string[] = [];
+
+      // ── SECTION 1: PHILANTHROPIST INFO ────────────────────────────────────
+      rows.push('CHARITY TOKEN PROJECT — PHILANTHROPIST ACTIVITY REPORT');
+      rows.push(`Generated: ${now}`);
+      rows.push('');
+      rows.push('PHILANTHROPIST PROFILE');
+      rows.push(`Full Name,${escape(phil.full_name || 'N/A')}`);
+      rows.push(`Email,${escape(phil.email || 'N/A')}`);
+      rows.push(`Country,${escape(phil.country || 'N/A')}`);
+      rows.push(`Phone,${escape(phil.phone || 'N/A')}`);
+      rows.push(`User ID,${escape(phil.id)}`);
+      rows.push(`Registered,${escape(phil.created_at ? new Date(phil.created_at).toLocaleDateString('en-GB') : 'N/A')}`);
+      rows.push(`Role,${escape(phil.role)}`);
+      rows.push('');
+
+      // ── SECTION 2: KYC INFO ───────────────────────────────────────────────
+      rows.push('KYC INFORMATION');
+      if (kycData) {
+        rows.push(`KYC Status,${escape(kycData.status)}`);
+        rows.push(`ID Type,${escape(kycData.government_id_type?.replace(/_/g, ' ') || 'N/A')}`);
+        rows.push(`Submitted,${escape(kycData.submitted_at ? new Date(kycData.submitted_at).toLocaleDateString('en-GB') : 'N/A')}`);
+        rows.push(`Reviewed,${escape(kycData.reviewed_at ? new Date(kycData.reviewed_at).toLocaleDateString('en-GB') : 'Pending')}`);
+      } else {
+        rows.push('KYC Status,No KYC submission found');
+      }
+      rows.push('');
+
+      // ── SECTION 3: ACTIVATION SUMMARY ────────────────────────────────────
+      const totalActivations  = (activations || []).length;
+      const verifiedCount     = (activations || []).filter(a => a.payment_status === 'verified').length;
+      const pendingCount      = (activations || []).filter(a => a.payment_status === 'pending').length;
+      const rejectedCount     = (activations || []).filter(a => a.payment_status === 'rejected').length;
+
+      rows.push('ACTIVATION SUMMARY');
+      rows.push(`Total Activations,${totalActivations}`);
+      rows.push(`Verified,${verifiedCount}`);
+      rows.push(`Pending,${pendingCount}`);
+      rows.push(`Rejected,${rejectedCount}`);
+      rows.push('');
+
+      // ── SECTION 4: ACTIVATION RECORDS ────────────────────────────────────
+      rows.push('ACTIVATION RECORDS');
+      rows.push([
+        '#',
+        'Full Name',
+        'Email Address',
+        'Phone Number',
+        'WhatsApp Number',
+        'Country',
+        'State / Region',
+        'City',
+        'Postal Code',
+        'Address',
+        'Occupation',
+        'Date of Birth',
+        'Gender',
+        'Username',
+        'Telegram Username',
+        'Twitter Handle',
+        'Account Created',
+        'Account Status',
+        'Beneficiary User ID',
+        'Payment Status',
+        'Activation Method',
+        'Amount Paid',
+        'Currency',
+        'Transaction Hash',
+        'Activated At',
+        'Record Created',
+        'Activation Record ID',
+      ].map(escape).join(','));
+
+      (activations || []).forEach((a: any, idx: number) => {
+        const ben = a.users || {};
+        rows.push([
+          idx + 1,
+          ben.full_name          || 'N/A',
+          ben.email              || 'N/A',
+          ben.phone              || 'N/A',
+          ben.whatsapp_number    || 'N/A',
+          ben.country            || 'N/A',
+          ben.state              || 'N/A',
+          ben.city               || 'N/A',
+          ben.postal_code        || 'N/A',
+          ben.address            || 'N/A',
+          ben.occupation         || 'N/A',
+          ben.date_of_birth      || 'N/A',
+          ben.gender             || 'N/A',
+          ben.username           || 'N/A',
+          ben.telegram_username  || 'N/A',
+          ben.twitter_handle     || 'N/A',
+          ben.created_at ? new Date(ben.created_at).toLocaleDateString('en-GB') : 'N/A',
+          ben.is_active ? 'Active' : 'Inactive',
+          ben.id                 || 'N/A',
+          a.payment_status       || 'N/A',
+          a.activation_method?.replace(/_/g, ' ') || 'N/A',
+          a.amount_paid          ?? 'N/A',
+          a.currency             || 'N/A',
+          a.transaction_hash     || 'N/A',
+          a.activated_at  ? new Date(a.activated_at).toLocaleString('en-GB')  : 'N/A',
+          a.created_at    ? new Date(a.created_at).toLocaleString('en-GB')    : 'N/A',
+          a.id,
+        ].map(escape).join(','));
+      });
+
+      rows.push('');
+      rows.push(`END OF REPORT — Charity Token Project — charitytoken.net`);
+
+      // ── DOWNLOAD ─────────────────────────────────────────────────────────
+      const csv     = rows.join('\r\n');
+      const blob    = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+      const url     = URL.createObjectURL(blob);
+      const safeName = (phil.full_name || 'philanthropist').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+      const dateStr  = new Date().toISOString().slice(0, 10);
+      const a        = Object.assign(document.createElement('a'), {
+        href: url, download: `CT_Philanthropist_${safeName}_${dateStr}.csv`,
+      });
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+
+    } catch (e: any) {
+      alert('Export failed: ' + (e.message || 'Unknown error'));
+    } finally {
+      setExportingId(null);
+    }
+  };
+
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
       (u.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (u.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (u.role || '').toLowerCase().includes(searchQuery.toLowerCase());
-
-    const activation = activationMap[u.id];
+    const activation  = activationMap[u.id];
     const isActivated = activation?.payment_status === 'verified';
-
-    if (roleFilter === 'activated')     return matchesSearch && isActivated;
-    if (roleFilter === 'unactivated')   return matchesSearch && u.role === 'beneficiary' && !isActivated;
+    if (roleFilter === 'activated')      return matchesSearch && isActivated;
+    if (roleFilter === 'unactivated')    return matchesSearch && u.role === 'beneficiary' && !isActivated;
     if (roleFilter === 'philanthropist') return matchesSearch && u.role === 'philanthropist';
-    if (roleFilter === 'admin')         return matchesSearch && u.role === 'admin';
+    if (roleFilter === 'admin')          return matchesSearch && u.role === 'admin';
     return matchesSearch;
   });
 
-  // Get activation status label + colour for a user
   const getActivationStatus = (u: any) => {
     const activation = activationMap[u.id];
-    if (u.role === 'admin') return { label: 'Admin', color: '#9B59B6', bg: 'rgba(155,89,182,0.15)', border: 'rgba(155,89,182,0.3)' };
-    if (u.role === 'philanthropist') {
-      const count = philanthropistMap[u.id] || 0;
-      return { label: `Philanthropist · ${count} activated`, color: '#00B894', bg: 'rgba(0,184,148,0.12)', border: 'rgba(0,184,148,0.3)' };
-    }
-    if (activation?.payment_status === 'verified') {
-      return { label: '✓ Activated', color: '#00CEC9', bg: 'rgba(0,206,201,0.12)', border: 'rgba(0,206,201,0.3)' };
-    }
-    if (activation?.payment_status === 'pending') {
-      return { label: '⏳ Pending', color: '#ffc107', bg: 'rgba(255,193,7,0.12)', border: 'rgba(255,193,7,0.3)' };
-    }
+    if (u.role === 'admin')          return { label: 'Admin', color: '#9B59B6', bg: 'rgba(155,89,182,0.15)', border: 'rgba(155,89,182,0.3)' };
+    if (u.role === 'philanthropist') { const count = philanthropistMap[u.id] || 0; return { label: `Philanthropist · ${count} activated`, color: '#00B894', bg: 'rgba(0,184,148,0.12)', border: 'rgba(0,184,148,0.3)' }; }
+    if (activation?.payment_status === 'verified') return { label: '✓ Activated', color: '#00CEC9', bg: 'rgba(0,206,201,0.12)', border: 'rgba(0,206,201,0.3)' };
+    if (activation?.payment_status === 'pending')  return { label: '⏳ Pending',  color: '#ffc107',  bg: 'rgba(255,193,7,0.12)',  border: 'rgba(255,193,7,0.3)' };
     return { label: 'Not Activated', color: '#ff6b6b', bg: 'rgba(255,107,107,0.1)', border: 'rgba(255,107,107,0.25)' };
   };
+
+  // Philanthropist-only list for the report section
+  const philanthropists = users.filter(u => u.role === 'philanthropist');
 
   if (authLoading || loading) {
     return (
@@ -215,7 +354,7 @@ export default function AdminMainDashboardPage() {
             <p style={{ fontSize: 13, color: '#8FA3BF', marginTop: 6 }}>Monitor platform activity, manage users, and review KYC submissions</p>
           </div>
 
-          {/* STATS CARDS — now 5 cards */}
+          {/* STATS CARDS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 24 }}>
             {[
               { label: 'Activated Beneficiaries', value: stats.active_beneficiaries.toLocaleString(), sub: 'Payment verified', icon: <CheckCircle style={{ width: 20, height: 20, color: '#00CEC9' }} />, color: '#00CEC9', bg: 'rgba(0,206,201,0.1)' },
@@ -280,13 +419,92 @@ export default function AdminMainDashboardPage() {
                 🔄 Refresh Stats
               </button>
             </div>
-            <StatsBanner
-              activeLast24h={bannerStats.activeLast24h}
-              totalActivated={bannerStats.totalActivated}
-              activePhilanthropists={bannerStats.activePhilanthropists}
-              goalPercent={bannerStats.goalPercent}
-              generatedAt={bannerStats.generatedAt}
-            />
+            <StatsBanner activeLast24h={bannerStats.activeLast24h} totalActivated={bannerStats.totalActivated} activePhilanthropists={bannerStats.activePhilanthropists} goalPercent={bannerStats.goalPercent} generatedAt={bannerStats.generatedAt} />
+          </div>
+
+          {/* ── PHILANTHROPIST ACTIVITY REPORTS ──────────────────────────────────── */}
+          <div style={{ padding: '24px', borderRadius: 20, border: '1px solid rgba(0,184,148,0.2)', backgroundColor: 'rgba(0,184,148,0.02)', marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 4, height: 18, backgroundColor: '#00B894', borderRadius: 2, display: 'inline-block' }} />
+                  Philanthropist Activity Reports
+                </p>
+                <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>
+                  Download a full CSV report of every activation made by each philanthropist — includes beneficiary details, payment method, dates and transaction hashes.
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 10, backgroundColor: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.2)' }}>
+                <FileSpreadsheet style={{ width: 14, height: 14, color: '#00B894' }} />
+                <span style={{ fontSize: 12, color: '#00B894', fontWeight: 600 }}>{philanthropists.length} philanthropists</span>
+              </div>
+            </div>
+
+            {philanthropists.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                <Users style={{ width: 36, height: 36, color: '#4A5568', margin: '0 auto 10px' }} />
+                <p style={{ color: '#8FA3BF', fontSize: 14 }}>No philanthropists registered yet.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {philanthropists.map((phil) => {
+                  const count      = philanthropistMap[phil.id] || 0;
+                  const isExporting = exportingId === phil.id;
+                  return (
+                    <div key={phil.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(0,184,148,0.1)', transition: 'border-color 0.2s' }}>
+                      {/* Avatar */}
+                      {phil.profile_picture
+                        ? <img src={phil.profile_picture} alt={phil.full_name} style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(0,184,148,0.35)', flexShrink: 0 }} />
+                        : <div style={{ width: 42, height: 42, borderRadius: '50%', backgroundColor: 'rgba(0,184,148,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '2px solid rgba(0,184,148,0.25)' }}>
+                            <span style={{ fontSize: 16, fontWeight: 800, color: '#00B894' }}>{(phil.full_name || phil.email || 'U')[0].toUpperCase()}</span>
+                          </div>
+                      }
+
+                      {/* Info */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontWeight: 700, fontSize: 14, color: 'white', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {phil.full_name || 'No name'}
+                        </p>
+                        <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {phil.email}
+                          {phil.country ? ` · ${phil.country}` : ''}
+                        </p>
+                      </div>
+
+                      {/* Activation count badge */}
+                      <div style={{ textAlign: 'center', flexShrink: 0 }}>
+                        <p style={{ fontSize: 22, fontWeight: 800, color: '#00B894', lineHeight: 1, margin: 0 }}>{count}</p>
+                        <p style={{ fontSize: 10, color: '#8FA3BF', margin: 0 }}>activated</p>
+                      </div>
+
+                      {/* Download button */}
+                      <button
+                        onClick={() => exportPhilanthropistCSV(phil)}
+                        disabled={isExporting}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 7,
+                          padding: '10px 18px', borderRadius: 10,
+                          background: isExporting
+                            ? 'rgba(0,184,148,0.15)'
+                            : 'linear-gradient(to right, #00B894, #00CEC9)',
+                          color: isExporting ? '#00B894' : 'white',
+                          fontWeight: 700, fontSize: 13,
+                          border: isExporting ? '1px solid rgba(0,184,148,0.3)' : 'none',
+                          cursor: isExporting ? 'not-allowed' : 'pointer',
+                          flexShrink: 0,
+                          boxShadow: isExporting ? 'none' : '0 4px 14px rgba(0,184,148,0.3)',
+                        }}
+                      >
+                        {isExporting
+                          ? <><div style={{ width: 13, height: 13, border: '2px solid rgba(0,184,148,0.3)', borderTop: '2px solid #00B894', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Exporting…</>
+                          : <><Download style={{ width: 14, height: 14 }} /> Download CSV</>
+                        }
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* USERS TABLE */}
@@ -299,34 +517,24 @@ export default function AdminMainDashboardPage() {
                 </p>
                 <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{filteredUsers.length} of {users.length} users shown</p>
               </div>
-              <input
-                placeholder="Search by name, email or role..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ padding: '10px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', width: 240 }}
-              />
+              <input placeholder="Search by name, email or role..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ padding: '10px 16px', borderRadius: 10, backgroundColor: '#0A1628', border: '1px solid rgba(0,206,201,0.2)', color: 'white', fontSize: 13, outline: 'none', width: 240 }} />
             </div>
 
             {/* Filter tabs */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
               {[
-                { key: 'all',           label: `All (${users.length})`,                              color: '#8FA3BF' },
-                { key: 'activated',     label: `✓ Activated (${stats.active_beneficiaries})`,        color: '#00CEC9' },
-                { key: 'unactivated',   label: `✗ Not Activated (${stats.unactivated_users})`,       color: '#ff6b6b' },
-                { key: 'philanthropist',label: `Philanthropists (${stats.total_philanthropists})`,   color: '#00B894' },
-                { key: 'admin',         label: 'Admins',                                             color: '#9B59B6' },
+                { key: 'all',            label: `All (${users.length})`,                             color: '#8FA3BF' },
+                { key: 'activated',      label: `✓ Activated (${stats.active_beneficiaries})`,       color: '#00CEC9' },
+                { key: 'unactivated',    label: `✗ Not Activated (${stats.unactivated_users})`,      color: '#ff6b6b' },
+                { key: 'philanthropist', label: `Philanthropists (${stats.total_philanthropists})`,  color: '#00B894' },
+                { key: 'admin',          label: 'Admins',                                            color: '#9B59B6' },
               ].map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setRoleFilter(f.key as any)}
-                  style={{
-                    padding: '6px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-                    cursor: 'pointer', border: 'none',
+                <button key={f.key} onClick={() => setRoleFilter(f.key as any)}
+                  style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
                     backgroundColor: roleFilter === f.key ? f.color : 'rgba(255,255,255,0.04)',
-                    color: roleFilter === f.key ? (f.key === 'all' ? '#0A1628' : '#0A1628') : f.color,
-                    outline: roleFilter === f.key ? 'none' : `1px solid ${f.color}44`,
-                  }}
-                >
+                    color: roleFilter === f.key ? '#0A1628' : f.color,
+                    outline: roleFilter === f.key ? 'none' : `1px solid ${f.color}44` }}>
                   {f.label}
                 </button>
               ))}
@@ -368,16 +576,22 @@ export default function AdminMainDashboardPage() {
                         </td>
                         <td style={{ padding: '13px 16px 13px 0', color: '#8FA3BF' }}>{new Date(u.created_at).toLocaleDateString()}</td>
                         <td style={{ padding: '13px 0' }}>
-                          <button
-                            onClick={() => {
-                              setSelectedUser(u);
-                              setSelectedActivation(activationMap[u.id] || null);
-                              setConfirmDelete(false);
-                            }}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(0,206,201,0.3)', backgroundColor: 'transparent', color: '#00CEC9', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                          >
-                            <Eye style={{ width: 13, height: 13 }} /> View
-                          </button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => { setSelectedUser(u); setSelectedActivation(activationMap[u.id] || null); setConfirmDelete(false); }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: '1px solid rgba(0,206,201,0.3)', backgroundColor: 'transparent', color: '#00CEC9', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                              <Eye style={{ width: 13, height: 13 }} /> View
+                            </button>
+                            {u.role === 'philanthropist' && (
+                              <button onClick={() => exportPhilanthropistCSV(u)} disabled={exportingId === u.id}
+                                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(0,184,148,0.3)', backgroundColor: 'rgba(0,184,148,0.08)', color: '#00B894', fontSize: 12, fontWeight: 600, cursor: exportingId === u.id ? 'not-allowed' : 'pointer', opacity: exportingId === u.id ? 0.6 : 1 }}>
+                                {exportingId === u.id
+                                  ? <div style={{ width: 11, height: 11, border: '2px solid rgba(0,184,148,0.3)', borderTop: '2px solid #00B894', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                                  : <Download style={{ width: 11, height: 11 }} />
+                                }
+                                CSV
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -415,8 +629,6 @@ export default function AdminMainDashboardPage() {
                   <X style={{ width: 16, height: 16 }} />
                 </button>
               </div>
-
-              {/* User card */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20, padding: '16px', borderRadius: 14, backgroundColor: 'rgba(0,206,201,0.04)', border: '1px solid rgba(0,206,201,0.1)' }}>
                 {selectedUser.profile_picture
                   ? <img src={selectedUser.profile_picture} alt={selectedUser.full_name} style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(0,206,201,0.4)', flexShrink: 0 }} />
@@ -426,17 +638,13 @@ export default function AdminMainDashboardPage() {
                   <p style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: '0 0 4px' }}>{selectedUser.full_name || 'No name'}</p>
                   <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>{selectedUser.email}</p>
                 </div>
-                {(() => { const s = getActivationStatus(selectedUser); return (
-                  <span style={{ padding: '4px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, backgroundColor: s.bg, color: s.color, border: `1px solid ${s.border}`, flexShrink: 0 }}>{s.label}</span>
-                ); })()}
+                {(() => { const s = getActivationStatus(selectedUser); return (<span style={{ padding: '4px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, backgroundColor: s.bg, color: s.color, border: `1px solid ${s.border}`, flexShrink: 0 }}>{s.label}</span>); })()}
               </div>
-
-              {/* User fields */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                 {[
                   { label: 'Role',    value: selectedUser.role },
                   { label: 'Country', value: selectedUser.country || 'Not specified' },
-                  { label: 'Phone',   value: selectedUser.phone || 'Not specified' },
+                  { label: 'Phone',   value: selectedUser.phone  || 'Not specified' },
                   { label: 'Joined',  value: new Date(selectedUser.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) },
                   { label: 'User ID', value: selectedUser.id?.slice(0, 20) + '...' },
                 ].map((item) => (
@@ -446,15 +654,13 @@ export default function AdminMainDashboardPage() {
                   </div>
                 ))}
               </div>
-
-              {/* Activation details */}
               {selectedActivation && (
                 <div style={{ marginBottom: 20, padding: '16px', borderRadius: 14, backgroundColor: 'rgba(0,206,201,0.04)', border: '1px solid rgba(0,206,201,0.12)' }}>
                   <p style={{ fontSize: 12, fontWeight: 700, color: '#00CEC9', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Activation Details</p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {[
-                      { label: 'Method',      value: selectedActivation.activation_method?.replace(/_/g, ' ') || '—' },
-                      { label: 'Status',      value: selectedActivation.payment_status || '—' },
+                      { label: 'Method',       value: selectedActivation.activation_method?.replace(/_/g, ' ') || '—' },
+                      { label: 'Status',       value: selectedActivation.payment_status || '—' },
                       { label: 'Activated At', value: selectedActivation.activated_at ? new Date(selectedActivation.activated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—' },
                       ...(selectedActivation.transaction_hash ? [{ label: 'Tx Hash', value: selectedActivation.transaction_hash.slice(0, 18) + '...' }] : []),
                     ].map((item) => (
@@ -466,19 +672,21 @@ export default function AdminMainDashboardPage() {
                   </div>
                 </div>
               )}
-
-              {/* Philanthropist activation count */}
               {selectedUser.role === 'philanthropist' && (
                 <div style={{ marginBottom: 20, padding: '16px', borderRadius: 14, backgroundColor: 'rgba(0,184,148,0.05)', border: '1px solid rgba(0,184,148,0.15)' }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: '#00B894', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Philanthropist Activity</p>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: '#00B894', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Philanthropist Activity</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                     <span style={{ fontSize: 13, color: '#8FA3BF' }}>Beneficiaries Activated</span>
                     <span style={{ fontSize: 22, fontWeight: 800, color: '#00B894' }}>{philanthropistMap[selectedUser.id] || 0}</span>
                   </div>
+                  <button onClick={() => { exportPhilanthropistCSV(selectedUser); setSelectedUser(null); setSelectedActivation(null); }}
+                    disabled={exportingId === selectedUser.id}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', borderRadius: 11, background: 'linear-gradient(to right, #00B894, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,184,148,0.25)' }}>
+                    <Download style={{ width: 15, height: 15 }} />
+                    Download Full Activity Report (.CSV)
+                  </button>
                 </div>
               )}
-
-              {/* Actions */}
               {confirmDelete ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div style={{ display: 'flex', gap: 10, padding: '12px 16px', backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 12 }}>
@@ -503,7 +711,6 @@ export default function AdminMainDashboardPage() {
             </div>
           </div>
         )}
-
       </div>
     </ProtectedRoute>
   );
