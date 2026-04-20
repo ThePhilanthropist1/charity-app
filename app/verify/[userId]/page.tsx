@@ -1,299 +1,202 @@
-import { createClient } from '@supabase/supabase-js';
-import { notFound } from 'next/navigation';
+'use client';
 
-// Server component — runs on the server, reads DB directly
-export default async function VerifyPage({
-  params,
-}: {
-  params: { userId: string };
-}) {
-  const { userId } = params;
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 
-  // Validate userId format to prevent injection
-  if (!userId || userId.length < 10) return notFound();
+export default function VerifyPage() {
+  const params  = useParams();
+  const userId  = params?.userId as string;
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const [status, setStatus]   = useState<'loading' | 'found' | 'notfound'>('loading');
+  const [user,   setUser]     = useState<any>(null);
+  const [active, setActive]   = useState(false);
+  const [activation, setActivation] = useState<any>(null);
 
-  // Fetch user
-  const { data: user, error } = await supabase
-    .from('users')
-    .select('id, full_name, email, country, created_at, role, profile_picture, is_active')
-    .eq('id', userId)
-    .single();
+  useEffect(() => {
+    if (!userId) return;
+    const load = async () => {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const sb = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
 
-  if (error || !user) return notFound();
+        const { data: u } = await sb
+          .from('users')
+          .select('id, full_name, email, country, created_at, role, profile_picture')
+          .eq('id', userId)
+          .single();
 
-  // Fetch activation status
-  const { data: activation } = await supabase
-    .from('beneficiary_activations')
-    .select('payment_status, activated_at, activation_method')
-    .eq('user_id', userId)
-    .eq('payment_status', 'verified')
-    .maybeSingle();
+        if (!u) { setStatus('notfound'); return; }
+        setUser(u);
 
-  const isActive  = !!activation;
-  const memberId  = 'CT-' + userId.slice(0, 6).toUpperCase() + '-' + new Date(user.created_at).getFullYear();
-  const joinDate  = new Date(user.created_at).toLocaleDateString('en-GB', {
-    day: 'numeric', month: 'long', year: 'numeric',
-  });
-  const scanTime  = new Date().toLocaleString('en-GB', {
+        const { data: act } = await sb
+          .from('beneficiary_activations')
+          .select('payment_status, activated_at, activation_method')
+          .eq('user_id', userId)
+          .eq('payment_status', 'verified')
+          .maybeSingle();
+
+        setActive(!!act);
+        setActivation(act || null);
+        setStatus('found');
+      } catch {
+        setStatus('notfound');
+      }
+    };
+    load();
+  }, [userId]);
+
+  const memberId = user
+    ? 'CT-' + userId.slice(0, 6).toUpperCase() + '-' + new Date(user.created_at).getFullYear()
+    : '';
+
+  const scanTime = new Date().toLocaleString('en-GB', {
     day: 'numeric', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
 
-  const statusColor  = isActive ? '#00B894' : '#ffc107';
-  const statusBg     = isActive ? 'rgba(0,184,148,0.12)' : 'rgba(255,193,7,0.1)';
-  const statusBorder = isActive ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)';
-  const barColor     = isActive
-    ? 'linear-gradient(to right, #00CEC9, #00B894)'
-    : 'linear-gradient(to right, #ffc107, #f59e0b)';
+  const C = active ? '#00B894' : '#ffc107';
+  const Cbg = active ? 'rgba(0,184,148,0.12)' : 'rgba(255,193,7,0.1)';
+  const Cbdr = active ? 'rgba(0,184,148,0.3)' : 'rgba(255,193,7,0.3)';
+  const bar = active
+    ? 'linear-gradient(to right,#00CEC9,#00B894)'
+    : 'linear-gradient(to right,#ffc107,#f59e0b)';
 
+  // ── LOADING ──────────────────────────────────────────────────────────────
+  if (status === 'loading') return (
+    <div style={{ minHeight:'100vh', backgroundColor:'#020C1B', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div style={{ textAlign:'center' }}>
+        <div style={{ width:44, height:44, border:'3px solid rgba(0,206,201,0.2)', borderTop:'3px solid #00CEC9', borderRadius:'50%', animation:'spin 1s linear infinite', margin:'0 auto 16px' }} />
+        <p style={{ color:'#8FA3BF', fontSize:14 }}>Verifying membership...</p>
+      </div>
+    </div>
+  );
+
+  // ── NOT FOUND ─────────────────────────────────────────────────────────────
+  if (status === 'notfound') return (
+    <div style={{ minHeight:'100vh', backgroundColor:'#020C1B', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div style={{ textAlign:'center', maxWidth:360 }}>
+        <div style={{ fontSize:48, marginBottom:16 }}>❌</div>
+        <h1 style={{ fontSize:22, fontWeight:800, color:'white', marginBottom:10 }}>Member Not Found</h1>
+        <p style={{ fontSize:14, color:'#8FA3BF', lineHeight:1.7, marginBottom:24 }}>
+          This QR code does not match any registered member in the Charity Token Project.
+        </p>
+        <a href="https://www.charitytoken.net" style={{ display:'inline-block', padding:'13px 32px', borderRadius:12, background:'linear-gradient(to right,#00CEC9,#00B894)', color:'#020C1B', fontWeight:800, fontSize:14, textDecoration:'none' }}>
+          Visit charitytoken.net
+        </a>
+      </div>
+    </div>
+  );
+
+  // ── FOUND ─────────────────────────────────────────────────────────────────
   return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="robots" content="noindex" />
-        <title>Charity Token · Member Verification</title>
-        <style dangerouslySetInnerHTML={{ __html: `
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #020C1B;
-            color: #fff;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 24px 16px;
-          }
-          .glow-tl {
-            position: fixed; top: -100px; left: -100px;
-            width: 400px; height: 400px; border-radius: 50%;
-            background: radial-gradient(circle, rgba(0,206,201,0.07) 0%, transparent 70%);
-            pointer-events: none;
-          }
-          .glow-br {
-            position: fixed; bottom: -100px; right: -100px;
-            width: 350px; height: 350px; border-radius: 50%;
-            background: radial-gradient(circle, rgba(0,184,148,0.06) 0%, transparent 70%);
-            pointer-events: none;
-          }
-          .wrap {
-            position: relative; z-index: 1;
-            width: 100%; max-width: 420px;
-            display: flex; flex-direction: column; align-items: center; gap: 20px;
-          }
-          .logo-area { text-align: center; }
-          .logo-area img {
-            width: 68px; height: 68px; border-radius: 16px;
-            border: 2px solid rgba(0,206,201,0.45);
-            box-shadow: 0 0 28px rgba(0,206,201,0.2);
-          }
-          .logo-area p {
-            margin-top: 8px; font-size: 11px; font-weight: 700;
-            letter-spacing: 3px; color: #00CEC9; text-transform: uppercase;
-          }
-          .card {
-            width: 100%;
-            background: #0F1F35;
-            border-radius: 22px;
-            overflow: hidden;
-            box-shadow: 0 24px 80px rgba(0,0,0,0.5);
-          }
-          .card-bar { height: 5px; }
-          .card-status {
-            padding: 28px 24px 22px;
-            text-align: center;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-          }
-          .status-icon {
-            width: 76px; height: 76px; border-radius: 50%;
-            margin: 0 auto 14px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 34px;
-          }
-          .status-label {
-            font-size: 11px; font-weight: 700; letter-spacing: 2px;
-            text-transform: uppercase; margin-bottom: 6px;
-          }
-          .status-title {
-            font-size: 22px; font-weight: 900; color: white;
-            margin-bottom: 6px; line-height: 1.2;
-          }
-          .status-sub { font-size: 13px; color: #8FA3BF; line-height: 1.6; }
-          .profile-row {
-            padding: 20px 24px;
-            display: flex; align-items: center; gap: 16px;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-          }
-          .avatar {
-            width: 72px; height: 72px; border-radius: 14px;
-            object-fit: cover; border: 3px solid rgba(0,206,201,0.4); flex-shrink: 0;
-          }
-          .avatar-placeholder {
-            width: 72px; height: 72px; border-radius: 14px; flex-shrink: 0;
-            background: rgba(0,206,201,0.12); border: 3px solid rgba(0,206,201,0.3);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 28px; font-weight: 900; color: #00CEC9;
-          }
-          .profile-name { font-size: 20px; font-weight: 800; color: white; margin-bottom: 4px; }
-          .profile-email { font-size: 13px; color: #8FA3BF; margin-bottom: 4px; }
-          .profile-country { font-size: 13px; color: #8FA3BF; }
-          .details-grid {
-            padding: 18px 24px;
-            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-          }
-          .detail-box {
-            padding: 12px 14px; border-radius: 12px;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.06);
-          }
-          .detail-label {
-            font-size: 10px; font-weight: 700; letter-spacing: 1px;
-            text-transform: uppercase; color: #8FA3BF; margin-bottom: 4px;
-          }
-          .detail-value { font-size: 13px; font-weight: 700; color: white; }
-          .footer-row {
-            padding: 0 24px 24px;
-            display: flex; flex-direction: column; gap: 10px;
-          }
-          .verify-badge {
-            display: flex; align-items: center; gap: 8; padding: 12px 16px;
-            border-radius: 12px; background: rgba(0,206,201,0.05);
-            border: 1px solid rgba(0,206,201,0.15);
-          }
-          .verify-dot {
-            width: 8px; height: 8px; border-radius: 50%;
-            background: #00CEC9; flex-shrink: 0;
-            box-shadow: 0 0 8px rgba(0,206,201,0.6);
-            animation: pulse 2s infinite;
-          }
-          @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-          .verify-text { font-size: 12px; color: #8FA3BF; line-height: 1.5; }
-          .home-link {
-            display: block; text-align: center; padding: 13px;
-            border-radius: 12px; background: linear-gradient(to right, #00CEC9, #00B894);
-            color: #020C1B; font-weight: 800; font-size: 14px;
-            text-decoration: none;
-          }
-          .scan-footer {
-            text-align: center; font-size: 11px; color: rgba(143,163,191,0.45);
-            line-height: 1.8;
-          }
-          .scan-footer a { color: #00CEC9; text-decoration: none; }
-        ` }} />
-      </head>
-      <body>
-        <div className="glow-tl" />
-        <div className="glow-br" />
+    <div style={{ minHeight:'100vh', backgroundColor:'#020C1B', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'24px 16px', fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif', color:'white' }}>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
 
-        <div className="wrap">
+      {/* Glow blobs */}
+      <div style={{ position:'fixed', top:-100, left:-100, width:400, height:400, borderRadius:'50%', background:'radial-gradient(circle,rgba(0,206,201,0.07) 0%,transparent 70%)', pointerEvents:'none' }} />
+      <div style={{ position:'fixed', bottom:-100, right:-100, width:350, height:350, borderRadius:'50%', background:'radial-gradient(circle,rgba(0,184,148,0.06) 0%,transparent 70%)', pointerEvents:'none' }} />
 
-          {/* Logo */}
-          <div className="logo-area">
-            <img src="/Charity token logo.jpg" alt="Charity Token" />
-            <p>Charity Token Project</p>
-          </div>
+      <div style={{ position:'relative', zIndex:1, width:'100%', maxWidth:420, display:'flex', flexDirection:'column', alignItems:'center', gap:20 }}>
 
-          {/* Main Card */}
-          <div className="card">
-            <div className="card-bar" style={{ background: barColor }} />
-
-            {/* Status banner */}
-            <div className="card-status">
-              <div className="status-icon" style={{ background: statusBg, border: `2px solid ${statusBorder}` }}>
-                {isActive ? '✅' : '⏳'}
-              </div>
-              <p className="status-label" style={{ color: statusColor }}>
-                {isActive ? 'Verified Member' : 'Not Yet Activated'}
-              </p>
-              <h1 className="status-title">
-                {isActive ? 'Membership Confirmed ✓' : 'Account Registered'}
-              </h1>
-              <p className="status-sub">
-                {isActive
-                  ? 'This is an authentic Charity Token membership card.'
-                  : 'This account is registered but not yet activated.'}
-              </p>
-            </div>
-
-            {/* Profile */}
-            <div className="profile-row">
-              {user.profile_picture ? (
-                <img src={user.profile_picture} alt={user.full_name} className="avatar" />
-              ) : (
-                <div className="avatar-placeholder">
-                  {(user.full_name || 'U')[0].toUpperCase()}
-                </div>
-              )}
-              <div>
-                <p className="profile-name">{user.full_name || 'No name'}</p>
-                <p className="profile-email">{user.email}</p>
-                {user.country && <p className="profile-country">📍 {user.country}</p>}
-              </div>
-            </div>
-
-            {/* Details grid */}
-            <div className="details-grid">
-              <div className="detail-box">
-                <p className="detail-label">Member ID</p>
-                <p className="detail-value" style={{ fontFamily: 'monospace', color: '#00CEC9', fontSize: 12 }}>{memberId}</p>
-              </div>
-              <div className="detail-box">
-                <p className="detail-label">Member Since</p>
-                <p className="detail-value">{joinDate}</p>
-              </div>
-              <div className="detail-box">
-                <p className="detail-label">Status</p>
-                <p className="detail-value" style={{ color: statusColor }}>
-                  {isActive ? '● Active Member' : '○ Pending'}
-                </p>
-              </div>
-              <div className="detail-box">
-                <p className="detail-label">Monthly Reward</p>
-                <p className="detail-value" style={{ color: '#00B894' }}>500 CT × 10 yrs</p>
-              </div>
-              {activation?.activated_at && (
-                <div className="detail-box" style={{ gridColumn: '1 / -1' }}>
-                  <p className="detail-label">Activated On</p>
-                  <p className="detail-value">
-                    {new Date(activation.activated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-                    {activation.activation_method ? ` · ${activation.activation_method.replace(/_/g, ' ')}` : ''}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="footer-row">
-              <div className="verify-badge">
-                <div className="verify-dot" />
-                <p className="verify-text">
-                  Verified by Charity Token Project · Official Registry<br />
-                  Scanned {scanTime}
-                </p>
-              </div>
-              <a href="https://www.charitytoken.net" className="home-link">
-                🌍 Visit charitytoken.net
-              </a>
-            </div>
-
-            <div className="card-bar" style={{ background: barColor }} />
-          </div>
-
-          <p className="scan-footer">
-            This page is auto-generated from the Charity Token membership registry.<br />
-            <a href="https://www.charitytoken.net">charitytoken.net</a>
-            {' · '}Official Member Verification
+        {/* Logo */}
+        <div style={{ textAlign:'center' }}>
+          <img src="/Charity token logo.jpg" alt="Charity Token"
+            style={{ width:68, height:68, borderRadius:16, border:'2px solid rgba(0,206,201,0.45)', boxShadow:'0 0 28px rgba(0,206,201,0.2)' }} />
+          <p style={{ marginTop:8, fontSize:11, fontWeight:700, letterSpacing:'3px', color:'#00CEC9', textTransform:'uppercase' }}>
+            Charity Token Project
           </p>
-
         </div>
-      </body>
-    </html>
+
+        {/* Card */}
+        <div style={{ width:'100%', background:'#0F1F35', borderRadius:22, overflow:'hidden', boxShadow:'0 24px 80px rgba(0,0,0,0.5)', border:`1px solid ${Cbdr}` }}>
+
+          {/* Top bar */}
+          <div style={{ height:5, background:bar }} />
+
+          {/* Status */}
+          <div style={{ padding:'28px 24px 22px', textAlign:'center', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ width:76, height:76, borderRadius:'50%', margin:'0 auto 14px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:34, background:Cbg, border:`2px solid ${Cbdr}` }}>
+              {active ? '✅' : '⏳'}
+            </div>
+            <p style={{ fontSize:11, fontWeight:700, letterSpacing:'2px', color:C, textTransform:'uppercase', marginBottom:6 }}>
+              {active ? 'Verified Member' : 'Not Yet Activated'}
+            </p>
+            <h1 style={{ fontSize:22, fontWeight:900, color:'white', marginBottom:6, lineHeight:1.2 }}>
+              {active ? 'Membership Confirmed ✓' : 'Account Registered'}
+            </h1>
+            <p style={{ fontSize:13, color:'#8FA3BF', lineHeight:1.6 }}>
+              {active
+                ? 'This is an authentic Charity Token membership card.'
+                : 'This account is registered but not yet activated.'}
+            </p>
+          </div>
+
+          {/* Profile */}
+          <div style={{ padding:'20px 24px', display:'flex', alignItems:'center', gap:16, borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+            {user.profile_picture ? (
+              <img src={user.profile_picture} alt={user.full_name}
+                style={{ width:72, height:72, borderRadius:14, objectFit:'cover', border:'3px solid rgba(0,206,201,0.4)', flexShrink:0 }} />
+            ) : (
+              <div style={{ width:72, height:72, borderRadius:14, flexShrink:0, background:'rgba(0,206,201,0.12)', border:'3px solid rgba(0,206,201,0.3)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, fontWeight:900, color:'#00CEC9' }}>
+                {(user.full_name || 'U')[0].toUpperCase()}
+              </div>
+            )}
+            <div>
+              <p style={{ fontSize:20, fontWeight:800, color:'white', marginBottom:4 }}>{user.full_name || 'No name'}</p>
+              <p style={{ fontSize:13, color:'#8FA3BF', marginBottom:4 }}>{user.email}</p>
+              {user.country && <p style={{ fontSize:13, color:'#8FA3BF' }}>📍 {user.country}</p>}
+            </div>
+          </div>
+
+          {/* Details grid */}
+          <div style={{ padding:'18px 24px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+            {[
+              { label:'Member ID', value:memberId, color:'#00CEC9', mono:true },
+              { label:'Member Since', value:new Date(user.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}), color:'white' },
+              { label:'Status', value:active ? '● Active Member' : '○ Pending', color:C },
+              { label:'Monthly Reward', value:'500 CT × 10 years', color:'#00B894' },
+              ...(activation?.activated_at ? [{
+                label:'Activated On',
+                value:new Date(activation.activated_at).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}),
+                color:'white', span:true,
+              }] : []),
+            ].map((item:any) => (
+              <div key={item.label} style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', gridColumn:item.span ? '1/-1' : 'auto' }}>
+                <p style={{ fontSize:10, fontWeight:700, letterSpacing:'1px', textTransform:'uppercase', color:'#8FA3BF', marginBottom:4 }}>{item.label}</p>
+                <p style={{ fontSize:13, fontWeight:700, color:item.color, fontFamily:item.mono ? 'monospace' : 'inherit' }}>{item.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Verified badge */}
+          <div style={{ padding:'0 24px 20px', display:'flex', flexDirection:'column', gap:10 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', borderRadius:12, background:'rgba(0,206,201,0.05)', border:'1px solid rgba(0,206,201,0.15)' }}>
+              <div style={{ width:8, height:8, borderRadius:'50%', background:'#00CEC9', flexShrink:0, boxShadow:'0 0 8px rgba(0,206,201,0.6)', animation:'pulse 2s infinite' }} />
+              <p style={{ fontSize:12, color:'#8FA3BF', lineHeight:1.5 }}>
+                Verified by Charity Token Project · Official Registry<br />
+                Scanned {scanTime}
+              </p>
+            </div>
+            <a href="https://www.charitytoken.net" style={{ display:'block', textAlign:'center', padding:13, borderRadius:12, background:'linear-gradient(to right,#00CEC9,#00B894)', color:'#020C1B', fontWeight:800, fontSize:14, textDecoration:'none' }}>
+              🌍 Visit charitytoken.net
+            </a>
+          </div>
+
+          {/* Bottom bar */}
+          <div style={{ height:5, background:bar }} />
+        </div>
+
+        <p style={{ textAlign:'center', fontSize:11, color:'rgba(143,163,191,0.45)', lineHeight:1.8 }}>
+          Auto-generated from the Charity Token membership registry.<br />
+          <a href="https://www.charitytoken.net" style={{ color:'#00CEC9', textDecoration:'none' }}>charitytoken.net</a>
+          {' · '}Official Member Verification
+        </p>
+
+      </div>
+    </div>
   );
 }
