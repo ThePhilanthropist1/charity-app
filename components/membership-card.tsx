@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Download, AlertCircle, Share2, X, Copy, Check, Printer } from 'lucide-react';
 
 interface MembershipCardProps {
@@ -24,340 +24,418 @@ Join me. Your seat at the table is waiting. 👇
 
 #CharityToken #OwnYourFuture #Web3ForGood #CommunityGrowth`;
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ── Image loader ──────────────────────────────────────────────────────────────
 function loadImg(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload  = () => resolve(img);
-    img.onerror = () => {
-      const img2 = new Image();
-      img2.onload  = () => resolve(img2);
-      img2.onerror = () => reject(new Error('Cannot load: ' + src));
-      img2.src = src + '?nc=' + Date.now();
+    const try1 = new Image();
+    try1.crossOrigin = 'anonymous';
+    try1.onload  = () => resolve(try1);
+    try1.onerror = () => {
+      const try2 = new Image();
+      try2.onload  = () => resolve(try2);
+      try2.onerror = () => reject(new Error('Cannot load: ' + src));
+      try2.src = src + (src.includes('?') ? '&' : '?') + 'nc=' + Date.now();
     };
-    img.src = src;
+    try1.src = src;
   });
 }
 
-function rrPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+// ── Cover-fit crop ─────────────────────────────────────────────────────────────
+function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement,
+  dx: number, dy: number, dw: number, dh: number) {
+  const ir = img.naturalWidth / img.naturalHeight;
+  const br = dw / dh;
+  let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+  if (ir > br) { sw = img.naturalHeight * br; sx = (img.naturalWidth - sw) / 2; }
+  else          { sh = img.naturalWidth  / br; sy = (img.naturalHeight - sh) / 2; }
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+}
+
+// ── Rounded rect path ──────────────────────────────────────────────────────────
+function rrp(ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number) {
+  const R = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y,     x + w, y + r,     r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-  ctx.lineTo(x + r, y + h);
-  ctx.arcTo(x,      y + h, x,       y + h - r, r);
-  ctx.lineTo(x,     y + r);
-  ctx.arcTo(x,      y,     x + r,   y,         r);
+  ctx.moveTo(x + R, y);
+  ctx.lineTo(x + w - R, y);       ctx.arcTo(x + w, y,     x + w, y + R,     R);
+  ctx.lineTo(x + w, y + h - R);   ctx.arcTo(x + w, y + h, x + w - R, y + h, R);
+  ctx.lineTo(x + R, y + h);       ctx.arcTo(x,     y + h, x,       y + h - R, R);
+  ctx.lineTo(x, y + R);           ctx.arcTo(x,     y,     x + R,   y,         R);
   ctx.closePath();
 }
 
-function fillRR(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, color: string | CanvasGradient) {
-  ctx.fillStyle = color; rrPath(ctx, x, y, w, h, r); ctx.fill();
+function fillRR(ctx: CanvasRenderingContext2D, x: number, y: number,
+  w: number, h: number, r: number, fill: string | CanvasGradient) {
+  ctx.fillStyle = fill; rrp(ctx, x, y, w, h, r); ctx.fill();
 }
 
-function strokeRR(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, color: string, lw: number) {
-  ctx.strokeStyle = color; ctx.lineWidth = lw; rrPath(ctx, x, y, w, h, r); ctx.stroke();
+function strokeRR(ctx: CanvasRenderingContext2D, x: number, y: number,
+  w: number, h: number, r: number, color: string, lw: number) {
+  ctx.strokeStyle = color; ctx.lineWidth = lw; rrp(ctx, x, y, w, h, r); ctx.stroke();
 }
 
-function clipRR(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  rrPath(ctx, x, y, w, h, r); ctx.clip();
-}
-
-function drawImageFit(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number) {
-  const ir = img.naturalWidth / img.naturalHeight;
-  const br = w / h;
-  let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
-  if (ir > br) { sw = img.naturalHeight * br; sx = (img.naturalWidth - sw) / 2; }
-  else          { sh = img.naturalWidth / br;  sy = (img.naturalHeight - sh) / 2; }
-  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+function clipRR(ctx: CanvasRenderingContext2D, x: number, y: number,
+  w: number, h: number, r: number) {
+  rrp(ctx, x, y, w, h, r); ctx.clip();
 }
 
 function truncate(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text;
-  while (text.length > 2 && ctx.measureText(text + '…').width > maxW) text = text.slice(0, -1);
-  return text + '…';
+  let t = text;
+  while (t.length > 2 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
 }
 
-function hLine(ctx: CanvasRenderingContext2D, x1: number, y: number, x2: number, color: string, lw = 1) {
-  ctx.strokeStyle = color; ctx.lineWidth = lw;
-  ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
-}
-
-// ─── QR code (simple URL display as fallback) ────────────────────────────────
-function drawQRPlaceholder(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
-  // Draw a small decorative "scan me" box since real QR needs a library
+// ── QR placeholder ────────────────────────────────────────────────────────────
+function drawQR(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
   const s = size;
-  ctx.strokeStyle = '#00CEC9'; ctx.lineWidth = 2;
+  const x = cx - s / 2, y = cy - s / 2;
+
+  // White background
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x, y, s, s);
+
   // Outer border
-  ctx.strokeRect(cx - s/2, cy - s/2, s, s);
-  // Corner marks
-  const cm = s * 0.22;
-  const cw = s * 0.06;
-  [[0,0],[1,0],[0,1],[1,1]].forEach(([xi,yi]) => {
-    const px = cx - s/2 + xi * (s - cm);
-    const py = cy - s/2 + yi * (s - cm);
-    ctx.fillStyle = '#00CEC9';
-    ctx.fillRect(px, py, cm, cw);
-    ctx.fillRect(px, py, cw, cm);
+  ctx.strokeStyle = '#006B7A'; ctx.lineWidth = 2.5;
+  ctx.strokeRect(x, y, s, s);
+
+  // Corner finder patterns
+  const cm = s * 0.26, ci = s * 0.14, off = s * 0.07;
+  const corners = [[x + off, y + off], [x + s - off - cm, y + off],
+                   [x + off, y + s - off - cm]] as [number,number][];
+  corners.forEach(([px, py]) => {
+    ctx.fillStyle = '#006B7A'; ctx.fillRect(px, py, cm, cm);
+    ctx.fillStyle = '#fff';    ctx.fillRect(px + (cm-ci)/2, py + (cm-ci)/2, ci, ci);
+    ctx.fillStyle = '#006B7A'; ctx.fillRect(px + (cm-ci*0.5)/2, py + (cm-ci*0.5)/2, ci*0.5, ci*0.5);
   });
-  // Inner grid dots (decorative)
-  ctx.fillStyle = 'rgba(0,206,201,0.35)';
-  const cols = 5; const cell = (s * 0.56) / cols;
-  const ox = cx - (s*0.56)/2; const oy = cy - (s*0.56)/2;
-  for (let r = 0; r < cols; r++) for (let c = 0; c < cols; c++) {
-    if (Math.random() > 0.4) ctx.fillRect(ox + c*cell + 1, oy + r*cell + 1, cell-2, cell-2);
-  }
-  ctx.fillStyle = '#007B8A';
-  ctx.font = `bold ${s * 0.12}px Arial`;
+
+  // Data dots (seeded)
+  const cell = (s * 0.54) / 7;
+  const ox = cx - (s * 0.54) / 2, oy = cy - (s * 0.54) / 2;
+  const pattern = [0,1,0,1,1,0,1, 1,0,1,0,1,1,0, 0,1,1,0,0,1,1,
+                   1,1,0,1,0,0,1, 0,0,1,1,1,0,0, 1,0,0,0,1,1,1, 0,1,1,0,0,1,0];
+  ctx.fillStyle = '#006B7A';
+  pattern.forEach((v, i) => {
+    if (v) {
+      const r = Math.floor(i / 7), c = i % 7;
+      ctx.fillRect(ox + c * cell + 1, oy + r * cell + 1, cell - 2, cell - 2);
+    }
+  });
+
+  // URL label
+  ctx.fillStyle = '#006B7A'; ctx.font = `bold ${s * 0.11}px Arial`;
   ctx.textAlign = 'center';
-  ctx.fillText('charitytoken.net', cx, cy + s/2 + s*0.16);
+  ctx.fillText('charitytoken.net', cx, cy + s / 2 + s * 0.18);
   ctx.textAlign = 'left';
 }
 
-// ─── MAIN GENERATOR ──────────────────────────────────────────────────────────
+// ── CARD BUILDER ──────────────────────────────────────────────────────────────
 async function buildCard(
   userId: string, fullName: string, email: string,
   profileImage: string, joinDate: string,
   country: string | undefined, isActivated: boolean
 ): Promise<HTMLCanvasElement> {
-  // CR80 card ratio 3.375 × 2.125 inch → scale to 1012 × 638 px at 300dpi
-  const W = 1012, H = 638;
+
+  // CR80 at 300 DPI: 3.375 × 2.125 in
+  const W = 1013, H = 638;
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
-  // ── BACKGROUND ────────────────────────────────────────────────────────────
-  const bg = ctx.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0,    '#f0fdfc');
-  bg.addColorStop(0.5,  '#ffffff');
-  bg.addColorStop(1,    '#f0fdf4');
-  fillRR(ctx, 0, 0, W, H, 28, bg);
+  // ── 1. PURE WHITE BACKGROUND ──────────────────────────────────────────────
+  ctx.fillStyle = '#FFFFFF';
+  rrp(ctx, 0, 0, W, H, 30);
+  ctx.fill();
 
-  // Subtle teal circle top-right
+  // ── 2. VERY SUBTLE BACKGROUND TINT (no overlay, just warmth) ─────────────
+  // Top-left mint hint
   ctx.save();
-  ctx.globalAlpha = 0.06;
-  const g1 = ctx.createRadialGradient(W*0.9, H*0.1, 0, W*0.9, H*0.1, 320);
-  g1.addColorStop(0, '#00CEC9'); g1.addColorStop(1, 'transparent');
-  ctx.fillStyle = g1; ctx.fillRect(0, 0, W, H);
-  // Subtle green circle bottom-left
-  const g2 = ctx.createRadialGradient(W*0.1, H*0.9, 0, W*0.1, H*0.9, 280);
-  g2.addColorStop(0, '#00B894'); g2.addColorStop(1, 'transparent');
-  ctx.fillStyle = g2; ctx.fillRect(0, 0, W, H);
+  const hint = ctx.createRadialGradient(0, 0, 0, 0, 0, 380);
+  hint.addColorStop(0, 'rgba(0,206,201,0.04)');
+  hint.addColorStop(1, 'transparent');
+  ctx.fillStyle = hint;
+  rrp(ctx, 0, 0, W, H, 30); ctx.fill();
   ctx.restore();
 
-  // ── CARD BORDER ───────────────────────────────────────────────────────────
-  strokeRR(ctx, 2, 2, W-4, H-4, 26, '#00CEC9', 4);
+  // ── 3. OUTER CARD BORDER ──────────────────────────────────────────────────
+  ctx.save();
+  ctx.shadowColor   = 'rgba(0,150,160,0.18)';
+  ctx.shadowBlur    = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.restore();
+  strokeRR(ctx, 2, 2, W - 4, H - 4, 28, '#00CEC9', 4);
 
-  // ── TOP ACCENT BAR (14px) ─────────────────────────────────────────────────
-  const topBar = ctx.createLinearGradient(0, 0, W, 0);
-  topBar.addColorStop(0, '#00CEC9'); topBar.addColorStop(0.5, '#00B894'); topBar.addColorStop(1, '#00CEC9');
-  ctx.save(); clipRR(ctx, 0, 0, W, H, 28);
-  ctx.fillStyle = topBar; ctx.fillRect(0, 0, W, 18); ctx.restore();
+  // ── 4. TOP ACCENT BAR ─────────────────────────────────────────────────────
+  ctx.save();
+  clipRR(ctx, 0, 0, W, H, 28);
+  const topG = ctx.createLinearGradient(0, 0, W, 0);
+  topG.addColorStop(0,   '#00CEC9');
+  topG.addColorStop(0.5, '#00B894');
+  topG.addColorStop(1,   '#00CEC9');
+  ctx.fillStyle = topG;
+  ctx.fillRect(0, 0, W, 20);
+  ctx.restore();
 
-  // ── BOTTOM ACCENT BAR (14px) ──────────────────────────────────────────────
-  const botBar = ctx.createLinearGradient(0, 0, W, 0);
-  botBar.addColorStop(0, '#00B894'); botBar.addColorStop(0.5, '#00CEC9'); botBar.addColorStop(1, '#00B894');
-  ctx.save(); clipRR(ctx, 0, 0, W, H, 28);
-  ctx.fillStyle = botBar; ctx.fillRect(0, H-18, W, 18); ctx.restore();
+  // ── 5. BOTTOM ACCENT BAR ─────────────────────────────────────────────────
+  ctx.save();
+  clipRR(ctx, 0, 0, W, H, 28);
+  const botG = ctx.createLinearGradient(0, 0, W, 0);
+  botG.addColorStop(0,   '#00B894');
+  botG.addColorStop(0.5, '#00CEC9');
+  botG.addColorStop(1,   '#00B894');
+  ctx.fillStyle = botG;
+  ctx.fillRect(0, H - 20, W, 20);
+  ctx.restore();
 
   // ── LAYOUT CONSTANTS ─────────────────────────────────────────────────────
-  const PAD  = 44;
-  const COL1 = PAD;               // left edge of content
-  const COL2 = PAD + 160 + 32;   // right of photo column
-  const RPAD = W - PAD;           // right edge
+  const PAD  = 46;          // horizontal margin
+  const CT   = 30;          // content top (below top bar)
+  const CB   = H - 26;      // content bottom (above bottom bar)
 
-  // ── SECTION 1: HEADER ROW ─────────────────────────────────────────────────
-  const HDR_Y = 30;
+  // ── 6. HEADER: Logo + Title + Member ID ──────────────────────────────────
+  const HDR_TOP  = CT + 6;
+  const LOGO_SZ  = 76;
 
-  // Logo
+  // Logo with subtle border
   try {
     const logo = await loadImg('/Charity token logo.jpg');
-    ctx.save(); clipRR(ctx, COL1, HDR_Y, 80, 80, 14);
-    drawImageFit(ctx, logo, COL1, HDR_Y, 80, 80);
+    ctx.save(); clipRR(ctx, PAD, HDR_TOP, LOGO_SZ, LOGO_SZ, 14);
+    drawCover(ctx, logo, PAD, HDR_TOP, LOGO_SZ, LOGO_SZ);
     ctx.restore();
-    strokeRR(ctx, COL1, HDR_Y, 80, 80, 14, 'rgba(0,206,201,0.5)', 3);
+    strokeRR(ctx, PAD, HDR_TOP, LOGO_SZ, LOGO_SZ, 14, 'rgba(0,206,201,0.6)', 3);
   } catch { /* skip */ }
 
-  // Title
-  ctx.fillStyle = '#006B7A';
-  ctx.font      = 'bold 26px Arial';
+  // Organisation name
+  ctx.fillStyle    = '#005F6B';
+  ctx.font         = 'bold 24px Arial, Helvetica, sans-serif';
   ctx.letterSpacing = '3px';
-  ctx.fillText('CHARITY TOKEN', COL1 + 94, HDR_Y + 30);
-  ctx.font      = 'bold 14px Arial';
-  ctx.letterSpacing = '2px';
-  ctx.fillStyle = '#00A0A8';
-  ctx.fillText('MEMBERSHIP CARD', COL1 + 94, HDR_Y + 54);
+  ctx.fillText('CHARITY TOKEN', PAD + LOGO_SZ + 18, HDR_TOP + 28);
+
+  ctx.fillStyle    = '#00A8B5';
+  ctx.font         = 'bold 13px Arial, Helvetica, sans-serif';
+  ctx.letterSpacing = '2.5px';
+  ctx.fillText('MEMBERSHIP CARD', PAD + LOGO_SZ + 18, HDR_TOP + 52);
   ctx.letterSpacing = '0px';
 
-  // Member ID (top right)
+  // Member ID — top right
   const memberId = 'CT-' + userId.slice(0, 6).toUpperCase() + '-' + new Date(joinDate).getFullYear();
-  ctx.textAlign  = 'right';
-  ctx.fillStyle  = '#9CA3AF';
-  ctx.font       = 'bold 12px Arial';
-  ctx.letterSpacing = '1px';
-  ctx.fillText('MEMBER ID', RPAD, HDR_Y + 26);
+  ctx.textAlign = 'right';
+
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font      = 'bold 11px Arial';
+  ctx.letterSpacing = '1.5px';
+  ctx.fillText('MEMBER ID', W - PAD, HDR_TOP + 24);
   ctx.letterSpacing = '0px';
-  ctx.fillStyle  = '#006B7A';
-  ctx.font       = "bold 22px 'Courier New', monospace";
-  ctx.fillText(memberId, RPAD, HDR_Y + 54);
-  ctx.textAlign  = 'left';
 
-  // ── DIVIDER 1 ─────────────────────────────────────────────────────────────
-  const DIV1 = HDR_Y + 96;
-  const div1Grad = ctx.createLinearGradient(COL1, 0, RPAD, 0);
-  div1Grad.addColorStop(0, 'rgba(0,206,201,0.1)');
-  div1Grad.addColorStop(0.5, 'rgba(0,184,148,0.5)');
-  div1Grad.addColorStop(1, 'rgba(0,206,201,0.1)');
-  hLine(ctx, COL1, DIV1, RPAD, div1Grad as any, 1.5);
+  ctx.fillStyle = '#005F6B';
+  ctx.font      = "bold 20px 'Courier New', Courier, monospace";
+  ctx.fillText(memberId, W - PAD, HDR_TOP + 52);
+  ctx.textAlign = 'left';
 
-  // ── SECTION 2: PHOTO + DETAILS ────────────────────────────────────────────
-  const PHOTO_Y = DIV1 + 18;
-  const PHOTO_W = 160;
-  const PHOTO_H = 200;
+  // ── 7. DIVIDER 1 ──────────────────────────────────────────────────────────
+  const D1 = HDR_TOP + LOGO_SZ + 16;
+  const dg1 = ctx.createLinearGradient(PAD, 0, W - PAD, 0);
+  dg1.addColorStop(0,   'rgba(0,206,201,0.15)');
+  dg1.addColorStop(0.5, 'rgba(0,184,148,0.55)');
+  dg1.addColorStop(1,   'rgba(0,206,201,0.15)');
+  ctx.strokeStyle = dg1 as any;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath(); ctx.moveTo(PAD, D1); ctx.lineTo(W - PAD, D1); ctx.stroke();
 
-  // Photo box shadow
+  // ── 8. PHOTO ──────────────────────────────────────────────────────────────
+  const BODY_TOP = D1 + 16;
+  const PH_W = 162, PH_H = 204;
+  const PH_X = PAD, PH_Y = BODY_TOP;
+
+  // Shadow for photo
   ctx.save();
-  ctx.shadowColor   = 'rgba(0,206,201,0.25)';
-  ctx.shadowBlur    = 18;
+  ctx.shadowColor   = 'rgba(0,150,160,0.22)';
+  ctx.shadowBlur    = 16;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 4;
-  ctx.fillStyle     = '#ffffff';
-  rrPath(ctx, COL1, PHOTO_Y, PHOTO_W, PHOTO_H, 16);
+  ctx.fillStyle     = '#fff';
+  rrp(ctx, PH_X, PH_Y, PH_W, PH_H, 14);
   ctx.fill();
   ctx.restore();
 
-  // Photo
   try {
     const prof = await loadImg(profileImage);
-    ctx.save(); clipRR(ctx, COL1, PHOTO_Y, PHOTO_W, PHOTO_H, 16);
-    drawImageFit(ctx, prof, COL1, PHOTO_Y, PHOTO_W, PHOTO_H);
+    ctx.save(); clipRR(ctx, PH_X, PH_Y, PH_W, PH_H, 14);
+    drawCover(ctx, prof, PH_X, PH_Y, PH_W, PH_H);
     ctx.restore();
-    strokeRR(ctx, COL1, PHOTO_Y, PHOTO_W, PHOTO_H, 16, '#00CEC9', 4);
+    strokeRR(ctx, PH_X, PH_Y, PH_W, PH_H, 14, '#00CEC9', 4);
   } catch {
-    fillRR(ctx, COL1, PHOTO_Y, PHOTO_W, PHOTO_H, 16, '#e0f7fa');
-    ctx.fillStyle = '#00CEC9'; ctx.font = 'bold 64px Arial';
+    fillRR(ctx, PH_X, PH_Y, PH_W, PH_H, 14, '#E0F7FA');
+    ctx.fillStyle = '#00CEC9'; ctx.font = 'bold 68px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText((fullName[0] || 'U').toUpperCase(), COL1 + PHOTO_W/2, PHOTO_Y + PHOTO_H/2 + 22);
+    ctx.fillText((fullName[0] || 'U').toUpperCase(), PH_X + PH_W / 2, PH_Y + PH_H / 2 + 24);
     ctx.textAlign = 'left';
-    strokeRR(ctx, COL1, PHOTO_Y, PHOTO_W, PHOTO_H, 16, '#00CEC9', 3);
+    strokeRR(ctx, PH_X, PH_Y, PH_W, PH_H, 14, '#00CEC9', 3);
   }
 
-  // ── DETAILS (right of photo) ──────────────────────────────────────────────
-  const DX   = COL2;
-  const DMaxW = RPAD - DX - 160; // leave space for QR on far right
+  // ── 9. DETAILS (right of photo) ────────────────────────────────────────
+  const IX = PH_X + PH_W + 30;
+  const QR_SZ  = 128;
+  const QR_CX  = W - PAD - QR_SZ / 2;
+  const DETAIL_MAX = QR_CX - QR_SZ / 2 - 20 - IX;
 
-  // Full Name label
-  ctx.fillStyle = '#9CA3AF'; ctx.font = 'bold 12px Arial'; ctx.letterSpacing = '1.5px';
-  ctx.fillText('FULL NAME', DX, PHOTO_Y + 18);
+  let iy = PH_Y + 4;
+
+  // Full Name
+  ctx.fillStyle    = '#6B7280';
+  ctx.font         = 'bold 11px Arial';
+  ctx.letterSpacing = '1.8px';
+  ctx.fillText('FULL NAME', IX, iy + 14);
   ctx.letterSpacing = '0px';
 
-  // Full Name value
-  ctx.fillStyle = '#111827'; ctx.font = 'bold 36px Arial';
-  const nameDisplay = truncate(ctx, fullName || 'Beneficiary', DMaxW);
-  ctx.fillText(nameDisplay, DX, PHOTO_Y + 58);
+  iy += 20;
+  ctx.fillStyle = '#111827';
+  ctx.font      = 'bold 30px Arial';
+  const nameStr = truncate(ctx, fullName || 'Beneficiary', DETAIL_MAX);
+  ctx.fillText(nameStr, IX, iy + 28);
+  iy += 40;
 
-  // Email label
-  ctx.fillStyle = '#9CA3AF'; ctx.font = 'bold 12px Arial'; ctx.letterSpacing = '1.5px';
-  ctx.fillText('EMAIL ADDRESS', DX, PHOTO_Y + 88);
+  // Email
+  ctx.fillStyle    = '#6B7280';
+  ctx.font         = 'bold 11px Arial';
+  ctx.letterSpacing = '1.8px';
+  ctx.fillText('EMAIL ADDRESS', IX, iy + 14);
   ctx.letterSpacing = '0px';
 
-  // Email value
-  ctx.fillStyle = '#0369a1'; ctx.font = 'bold 18px Arial';
-  const emailDisplay = truncate(ctx, email, DMaxW);
-  ctx.fillText(emailDisplay, DX, PHOTO_Y + 114);
+  iy += 18;
+  ctx.fillStyle = '#0369A1';
+  ctx.font      = 'bold 16px Arial';
+  ctx.fillText(truncate(ctx, email, DETAIL_MAX), IX, iy + 16);
+  iy += 30;
 
   // Country
   if (country) {
-    ctx.fillStyle = '#9CA3AF'; ctx.font = 'bold 12px Arial'; ctx.letterSpacing = '1.5px';
-    ctx.fillText('COUNTRY', DX, PHOTO_Y + 144);
+    ctx.fillStyle    = '#6B7280';
+    ctx.font         = 'bold 11px Arial';
+    ctx.letterSpacing = '1.8px';
+    ctx.fillText('COUNTRY', IX, iy + 14);
     ctx.letterSpacing = '0px';
-    ctx.fillStyle = '#374151'; ctx.font = 'bold 18px Arial';
-    ctx.fillText(country, DX, PHOTO_Y + 168);
+
+    iy += 18;
+    ctx.fillStyle = '#374151';
+    ctx.font      = 'bold 16px Arial';
+    ctx.fillText(country, IX, iy + 16);
   }
 
-  // ── QR PLACEHOLDER (far right, aligned with photo section) ───────────────
-  const QR_SIZE = 130;
-  const QR_CX   = RPAD - QR_SIZE/2;
-  const QR_CY   = PHOTO_Y + PHOTO_H/2 - 10;
-  // Seed random for consistent dots
-  const savedRand = Math.random;
-  let seed = 42;
-  Math.random = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-  drawQRPlaceholder(ctx, QR_CX, QR_CY, QR_SIZE);
-  Math.random = savedRand;
+  // ── 10. QR CODE ───────────────────────────────────────────────────────────
+  const QR_CY = BODY_TOP + PH_H / 2 - 10;
+  drawQR(ctx, QR_CX, QR_CY, QR_SZ);
 
-  // ── DIVIDER 2 ─────────────────────────────────────────────────────────────
-  const DIV2 = PHOTO_Y + PHOTO_H + 24;
-  hLine(ctx, COL1, DIV2, RPAD, 'rgba(0,206,201,0.35)', 1.5);
+  // ── 11. DIVIDER 2 ─────────────────────────────────────────────────────────
+  const D2 = BODY_TOP + PH_H + 18;
+  const dg2 = ctx.createLinearGradient(PAD, 0, W - PAD, 0);
+  dg2.addColorStop(0,   'rgba(0,206,201,0.15)');
+  dg2.addColorStop(0.5, 'rgba(0,184,148,0.55)');
+  dg2.addColorStop(1,   'rgba(0,206,201,0.15)');
+  ctx.strokeStyle = dg2 as any;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath(); ctx.moveTo(PAD, D2); ctx.lineTo(W - PAD, D2); ctx.stroke();
 
-  // ── SECTION 3: FOOTER ROW ─────────────────────────────────────────────────
-  const FOOT_Y = DIV2 + 16;
-  const FOOT_H = H - FOOT_Y - 26;
+  // ── 12. FOOTER ROW ────────────────────────────────────────────────────────
+  const FY = D2 + 14;
+  const FOOT_H = CB - FY;
 
-  // ── BOX 1: Member Since ───────────────────────────────────────────────────
-  const B1X = COL1;
-  ctx.fillStyle = '#9CA3AF'; ctx.font = 'bold 11px Arial'; ctx.letterSpacing = '1.5px';
-  ctx.fillText('MEMBER SINCE', B1X, FOOT_Y + 18);
+  // ── Member Since (left) ───────────────────────────────────────────────────
+  ctx.fillStyle    = '#6B7280';
+  ctx.font         = 'bold 11px Arial';
+  ctx.letterSpacing = '1.8px';
+  ctx.fillText('MEMBER SINCE', PAD, FY + 16);
   ctx.letterSpacing = '0px';
-  ctx.fillStyle = '#111827'; ctx.font = 'bold 28px Arial';
-  ctx.fillText(new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }).toUpperCase(), B1X, FOOT_Y + 52);
 
-  // ── BOX 2: Status (center) ────────────────────────────────────────────────
-  const statusLabel = isActivated ? 'ACTIVE MEMBER' : 'PENDING';
+  ctx.fillStyle = '#111827';
+  ctx.font      = 'bold 26px Arial';
+  ctx.fillText(
+    new Date(joinDate).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }).toUpperCase(),
+    PAD, FY + 48
+  );
+
+  // ── Status badge (centre) ─────────────────────────────────────────────────
   const sBg  = isActivated ? '#DCFCE7' : '#FEF9C3';
   const sFg  = isActivated ? '#14532D' : '#713F12';
   const sBdr = isActivated ? '#86EFAC' : '#FDE047';
-  ctx.font = 'bold 16px Arial';
-  const sW = ctx.measureText(statusLabel).width + 56;
-  const sH = 40;
-  const sX = W/2 - sW/2;
-  const sY = FOOT_Y + 14;
-  fillRR(ctx, sX, sY, sW, sH, 999, sBg);
-  strokeRR(ctx, sX, sY, sW, sH, 999, sBdr, 2);
-  // Status dot
-  ctx.fillStyle = isActivated ? '#16A34A' : '#CA8A04';
-  ctx.beginPath(); ctx.arc(sX + 22, sY + sH/2, 6, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle = sFg; ctx.font = 'bold 16px Arial'; ctx.letterSpacing = '1px';
-  ctx.textAlign = 'center';
-  ctx.fillText(statusLabel, W/2 + 8, sY + sH/2 + 6);
-  ctx.textAlign = 'left'; ctx.letterSpacing = '0px';
+  const sDot = isActivated ? '#16A34A' : '#CA8A04';
+  const sLabel = isActivated ? 'ACTIVE MEMBER' : 'PENDING';
 
-  // ── BOX 3: Monthly tokens (right) ────────────────────────────────────────
-  ctx.textAlign  = 'right';
-  ctx.fillStyle  = '#9CA3AF'; ctx.font = 'bold 11px Arial'; ctx.letterSpacing = '1.5px';
-  ctx.fillText('MONTHLY REWARD', RPAD, FOOT_Y + 18);
+  ctx.font      = 'bold 15px Arial';
+  const sTW     = ctx.measureText(sLabel).width;
+  const sBW     = sTW + 52;   // dot + padding
+  const sBH     = 38;
+  const sBX     = W / 2 - sBW / 2;
+  const sBY     = FY + FOOT_H / 2 - sBH / 2 - 2;
+
+  // Badge fill
+  fillRR(ctx, sBX, sBY, sBW, sBH, 999, sBg);
+  strokeRR(ctx, sBX, sBY, sBW, sBH, 999, sBdr, 2);
+
+  // Dot
+  ctx.fillStyle = sDot;
+  ctx.beginPath();
+  ctx.arc(sBX + 22, sBY + sBH / 2, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Label
+  ctx.fillStyle    = sFg;
+  ctx.font         = 'bold 15px Arial';
+  ctx.letterSpacing = '1px';
+  ctx.textAlign    = 'center';
+  ctx.fillText(sLabel, W / 2 + 8, sBY + sBH / 2 + 6);
+  ctx.textAlign    = 'left';
   ctx.letterSpacing = '0px';
-  ctx.fillStyle  = '#064E3B'; ctx.font = 'bold 40px Arial';
-  ctx.fillText('500 CT', RPAD, FOOT_Y + 58);
-  ctx.fillStyle  = '#6EE7B7'; ctx.font = 'bold 13px Arial';
-  ctx.fillText('FOR 10 YEARS · STARTING 2027', RPAD, FOOT_Y + 78);
-  ctx.textAlign  = 'left';
 
-  // ── FINE PRINT / watermark strip ─────────────────────────────────────────
-  ctx.fillStyle = 'rgba(0,150,160,0.18)';
+  // ── Monthly (right) ───────────────────────────────────────────────────────
+  ctx.textAlign    = 'right';
+  ctx.fillStyle    = '#6B7280';
+  ctx.font         = 'bold 11px Arial';
+  ctx.letterSpacing = '1.8px';
+  ctx.fillText('MONTHLY REWARD', W - PAD, FY + 16);
+  ctx.letterSpacing = '0px';
+
+  ctx.fillStyle = '#064E3B';
+  ctx.font      = 'bold 38px Arial';
+  ctx.fillText('500 CT', W - PAD, FY + 52);
+
+  ctx.fillStyle    = '#6EE7B7';
+  ctx.font         = 'bold 12px Arial';
+  ctx.letterSpacing = '0.5px';
+  ctx.fillText('10 YEARS · STARTING 2027', W - PAD, FY + 72);
+  ctx.textAlign    = 'left';
+  ctx.letterSpacing = '0px';
+
+  // ── 13. WATERMARK LINE ────────────────────────────────────────────────────
+  ctx.fillStyle = 'rgba(0,150,160,0.20)';
   ctx.font      = '10px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText('charitytoken.net  ·  This card is the official record of membership in the Charity Token Project', W/2, H - 24);
+  ctx.fillText(
+    'charitytoken.net  ·  Official Membership Card  ·  Charity Token Project',
+    W / 2, H - 26
+  );
   ctx.textAlign = 'left';
 
   return cv;
 }
 
-// ─── COMPONENT ───────────────────────────────────────────────────────────────
+// ── COMPONENT ─────────────────────────────────────────────────────────────────
 export function MembershipCard({
-  userId, fullName, email, profileImage, joinDate, country, isActivated = true
+  userId, fullName, email, profileImage,
+  joinDate, country, isActivated = true,
 }: MembershipCardProps) {
-  const [loading, setLoading]               = useState(false);
-  const [sharing, setSharing]               = useState(false);
-  const [error, setError]                   = useState('');
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [captionCopied, setCaptionCopied]   = useState(false);
-  const [previewSrc, setPreviewSrc]         = useState('');
-  const [genLoading, setGenLoading]         = useState(true);
+  const [loading,        setLoading]        = useState(false);
+  const [sharing,        setSharing]        = useState(false);
+  const [error,          setError]          = useState('');
+  const [showModal,      setShowModal]      = useState(false);
+  const [captionCopied,  setCaptionCopied]  = useState(false);
+  const [previewSrc,     setPreviewSrc]     = useState('');
+  const [genLoading,     setGenLoading]     = useState(true);
 
+  // Build preview on mount
   useEffect(() => {
     if (!profileImage) return;
     let cancelled = false;
@@ -370,7 +448,8 @@ export function MembershipCard({
 
   const getBlob = async (): Promise<Blob> => {
     const cv = await buildCard(userId, fullName, email, profileImage!, joinDate, country, isActivated);
-    return new Promise((res, rej) => cv.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/png', 1));
+    return new Promise((res, rej) =>
+      cv.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/png', 1));
   };
 
   const downloadCard = async () => {
@@ -378,10 +457,12 @@ export function MembershipCard({
     try {
       const blob = await getBlob();
       const url  = URL.createObjectURL(blob);
-      const a    = Object.assign(document.createElement('a'), { href: url, download: `charity-token-${userId.slice(0,6)}.png` });
+      const a    = Object.assign(document.createElement('a'), {
+        href: url, download: `charity-token-${userId.slice(0, 6)}.png`,
+      });
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 1500);
-    } catch (e: any) { setError('Download failed. Please try again.'); }
+    } catch { setError('Download failed. Please try again.'); }
     finally { setLoading(false); }
   };
 
@@ -390,20 +471,17 @@ export function MembershipCard({
     try {
       const blob = await getBlob();
       const url  = URL.createObjectURL(blob);
-      const w = window.open('', '_blank')!;
+      const w    = window.open('', '_blank')!;
       w.document.write(`<!DOCTYPE html><html><head><title>Charity Token ID Card</title>
         <style>*{margin:0;padding:0;box-sizing:border-box}
         body{background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh}
-        img{max-width:100%;width:1012px;height:auto;display:block;margin:auto}
-        @media print{
-          @page{size:3.375in 2.125in;margin:0}
-          body{width:3.375in;height:2.125in}
-          img{width:100%;height:auto}
-        }</style></head>
-        <body><img src="${url}" onload="window.print()"/></body></html>`);
+        img{max-width:100%;width:1013px;height:auto;display:block;margin:auto}
+        @media print{@page{size:3.375in 2.125in;margin:0}
+        body{width:3.375in;height:2.125in}img{width:100%;height:auto}}</style>
+        </head><body><img src="${url}" onload="window.print()"/></body></html>`);
       w.document.close();
-      URL.revokeObjectURL(url);
-    } catch (e: any) { setError('Print failed. Please try downloading instead.'); }
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch { setError('Print failed. Please download instead.'); }
     finally { setLoading(false); }
   };
 
@@ -417,11 +495,11 @@ export function MembershipCard({
         return;
       }
       if (navigator.share) {
-        await navigator.share({ title: 'My Charity Token Membership', text: SHARE_CAPTION, url: 'https://charitytoken.net' });
+        await navigator.share({ title: 'Charity Token Membership', text: SHARE_CAPTION, url: 'https://charitytoken.net' });
         return;
       }
-      setShowShareModal(true);
-    } catch (e: any) { if (e?.name !== 'AbortError') setShowShareModal(true); }
+      setShowModal(true);
+    } catch (e: any) { if (e?.name !== 'AbortError') setShowModal(true); }
     finally { setSharing(false); }
   };
 
@@ -438,16 +516,19 @@ export function MembershipCard({
       const file = new File([blob], 'charity-token-membership.png', { type: 'image/png' });
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], title: 'My Charity Token Membership', text: SHARE_CAPTION });
-        setShowShareModal(false); return;
+        setShowModal(false); return;
       }
       const url = URL.createObjectURL(blob);
-      Object.assign(document.createElement('a'), { href: url, download: 'charity-token-membership.png' }).click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const a = Object.assign(document.createElement('a'), { href: url, download: 'charity-token-membership.png' });
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1200);
       await new Promise(r => setTimeout(r, 900));
       const t = encodeURIComponent(SHARE_CAPTION), u = encodeURIComponent('https://charitytoken.net');
-      const urls: Record<string,string> = {
-        whatsapp: `https://wa.me/?text=${t}`, telegram: `https://t.me/share/url?url=${u}&text=${t}`,
-        twitter: `https://twitter.com/intent/tweet?text=${t}`, facebook: `https://www.facebook.com/sharer/sharer.php?u=${u}`,
+      const urls: Record<string, string> = {
+        whatsapp:  `https://wa.me/?text=${t}`,
+        telegram:  `https://t.me/share/url?url=${u}&text=${t}`,
+        twitter:   `https://twitter.com/intent/tweet?text=${t}`,
+        facebook:  `https://www.facebook.com/sharer/sharer.php?u=${u}`,
         instagram: 'https://www.instagram.com/',
       };
       if (urls[platform]) window.open(urls[platform], '_blank', 'noopener');
@@ -487,89 +568,89 @@ export function MembershipCard({
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       {error && (
-        <div style={{ display:'flex', gap:8, alignItems:'center', padding:'10px 14px', borderRadius:10, backgroundColor:'rgba(255,107,107,0.1)', border:'1px solid rgba(255,107,107,0.3)' }}>
-          <AlertCircle style={{ width:14, height:14, color:'#ff6b6b', flexShrink:0 }} />
-          <p style={{ fontSize:12, color:'#ff6b6b', margin:0 }}>{error}</p>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 14px', borderRadius: 10, backgroundColor: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)' }}>
+          <AlertCircle style={{ width: 14, height: 14, color: '#ff6b6b', flexShrink: 0 }} />
+          <p style={{ fontSize: 12, color: '#ff6b6b', margin: 0 }}>{error}</p>
         </div>
       )}
 
       {/* SHARE MODAL */}
-      {showShareModal && (
-        <div style={{ position:'fixed', inset:0, backgroundColor:'rgba(0,0,0,0.85)', display:'flex', alignItems:'flex-end', justifyContent:'center', zIndex:300, backdropFilter:'blur(8px)' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowShareModal(false); }}>
-          <div style={{ width:'100%', maxWidth:520, backgroundColor:'#0F1F35', borderRadius:'22px 22px 0 0', padding:'28px 24px 44px', boxShadow:'0 -20px 60px rgba(0,0,0,0.5)' }}>
-            <div style={{ width:40, height:4, borderRadius:999, backgroundColor:'rgba(255,255,255,0.15)', margin:'0 auto 20px' }} />
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+      {showModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 300, backdropFilter: 'blur(8px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }}>
+          <div style={{ width: '100%', maxWidth: 520, backgroundColor: '#0F1F35', borderRadius: '22px 22px 0 0', padding: '28px 24px 44px', boxShadow: '0 -20px 60px rgba(0,0,0,0.5)' }}>
+            <div style={{ width: 40, height: 4, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.15)', margin: '0 auto 20px' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div>
-                <h3 style={{ fontSize:18, fontWeight:800, color:'white', margin:0 }}>Share Your Membership 🚀</h3>
-                <p style={{ fontSize:12, color:'#8FA3BF', margin:'4px 0 0' }}>Image auto-saves then the app opens</p>
+                <h3 style={{ fontSize: 18, fontWeight: 800, color: 'white', margin: 0 }}>Share Your Membership 🚀</h3>
+                <p style={{ fontSize: 12, color: '#8FA3BF', margin: '4px 0 0' }}>Image saves automatically then the app opens</p>
               </div>
-              <button onClick={() => setShowShareModal(false)} style={{ width:34, height:34, borderRadius:'50%', backgroundColor:'rgba(255,255,255,0.08)', border:'none', color:'#8FA3BF', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <X style={{ width:16, height:16 }} />
+              <button onClick={() => setShowModal(false)} style={{ width: 34, height: 34, borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.08)', border: 'none', color: '#8FA3BF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <X style={{ width: 16, height: 16 }} />
               </button>
             </div>
-            <div style={{ marginBottom:14, padding:'12px 14px', borderRadius:12, backgroundColor:'rgba(0,206,201,0.05)', border:'1px solid rgba(0,206,201,0.15)' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                <p style={{ fontSize:12, fontWeight:700, color:'#00CEC9', margin:0 }}>📝 Caption to copy</p>
-                <button onClick={copyCaption} style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, backgroundColor: captionCopied ? 'rgba(0,184,148,0.2)' : 'rgba(0,206,201,0.1)', border:`1px solid ${captionCopied ? 'rgba(0,184,148,0.4)' : 'rgba(0,206,201,0.25)'}`, color: captionCopied ? '#00B894' : '#67e8f9', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-                  {captionCopied ? <Check style={{ width:12, height:12 }} /> : <Copy style={{ width:12, height:12 }} />}
+            <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 12, backgroundColor: 'rgba(0,206,201,0.05)', border: '1px solid rgba(0,206,201,0.15)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#00CEC9', margin: 0 }}>📝 Caption</p>
+                <button onClick={copyCaption} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 8, backgroundColor: captionCopied ? 'rgba(0,184,148,0.2)' : 'rgba(0,206,201,0.1)', border: `1px solid ${captionCopied ? 'rgba(0,184,148,0.4)' : 'rgba(0,206,201,0.25)'}`, color: captionCopied ? '#00B894' : '#67e8f9', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  {captionCopied ? <Check style={{ width: 12, height: 12 }} /> : <Copy style={{ width: 12, height: 12 }} />}
                   {captionCopied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
-              <p style={{ fontSize:11.5, color:'#8FA3BF', lineHeight:1.7, margin:0, whiteSpace:'pre-line', maxHeight:80, overflowY:'auto' }}>{SHARE_CAPTION}</p>
+              <p style={{ fontSize: 11.5, color: '#8FA3BF', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line', maxHeight: 80, overflowY: 'auto' }}>{SHARE_CAPTION}</p>
             </div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               {platforms.map(p => (
                 <button key={p.id} onClick={() => sharePlatform(p.id)} disabled={sharing}
-                  style={{ display:'flex', alignItems:'center', gap:10, padding:'13px 16px', borderRadius:14, background:p.bg, color:'white', fontWeight:700, fontSize:14, border:'none', cursor:sharing ? 'not-allowed' : 'pointer', opacity:sharing ? 0.6 : 1, boxShadow:'0 4px 16px rgba(0,0,0,0.2)' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', borderRadius: 14, background: p.bg, color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: sharing ? 'not-allowed' : 'pointer', opacity: sharing ? 0.6 : 1, boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>
                   {p.icon}<span>{p.label}</span>
                 </button>
               ))}
             </div>
+            <p style={{ fontSize: 11, color: '#4A5568', textAlign: 'center', marginTop: 14, marginBottom: 0 }}>
+              {sharing ? '⏳ Generating card…' : 'Card image saves automatically before each share.'}
+            </p>
           </div>
         </div>
       )}
 
       {/* CARD PREVIEW */}
-      <div style={{ width:'100%', maxWidth:520, margin:'0 auto' }}>
-        <div style={{ borderRadius:16, overflow:'hidden', boxShadow:'0 8px 40px rgba(0,206,201,0.2)', border:'1px solid rgba(0,206,201,0.15)' }}>
+      <div style={{ width: '100%', maxWidth: 520, margin: '0 auto' }}>
+        <div style={{ borderRadius: 16, overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,206,201,0.18)', border: '1px solid rgba(0,206,201,0.12)' }}>
           {genLoading ? (
-            <div style={{ width:'100%', aspectRatio:'1.586', backgroundColor:'#071828', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <div style={{ textAlign:'center' }}>
-                <div style={{ width:32, height:32, border:'3px solid rgba(0,206,201,0.2)', borderTop:'3px solid #00CEC9', borderRadius:'50%', animation:'spin 1s linear infinite', margin:'0 auto 10px' }} />
-                <p style={{ fontSize:12, color:'#8FA3BF', margin:0 }}>Building your ID card...</p>
+            <div style={{ width: '100%', aspectRatio: '1.586', backgroundColor: '#071828', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ width: 32, height: 32, border: '3px solid rgba(0,206,201,0.2)', borderTop: '3px solid #00CEC9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 10px' }} />
+                <p style={{ fontSize: 12, color: '#8FA3BF', margin: 0 }}>Building your ID card…</p>
               </div>
             </div>
           ) : previewSrc ? (
-            <img src={previewSrc} alt="Charity Token Membership Card" style={{ width:'100%', display:'block' }} />
+            <img src={previewSrc} alt="Charity Token Membership Card"
+              style={{ width: '100%', display: 'block' }} />
           ) : null}
         </div>
-
-        {/* Print hint */}
         {!genLoading && previewSrc && (
-          <p style={{ fontSize:11, color:'rgba(143,163,191,0.5)', textAlign:'center', marginTop:8 }}>
-            CR80 card size (3.375 × 2.125 in) · Print-ready 300dpi
+          <p style={{ fontSize: 11, color: 'rgba(143,163,191,0.45)', textAlign: 'center', marginTop: 7 }}>
+            CR80 standard · 3.375 × 2.125 in · Print-ready 300 DPI
           </p>
         )}
       </div>
 
-      {/* ACTION BUTTONS */}
-      <div style={{ display:'flex', gap:8, justifyContent:'center', maxWidth:520, margin:'0 auto', width:'100%', flexWrap:'wrap' }}>
+      {/* BUTTONS */}
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', maxWidth: 520, margin: '0 auto', width: '100%', flexWrap: 'wrap' }}>
         <button onClick={downloadCard} disabled={busy}
-          style={{ display:'flex', alignItems:'center', gap:7, padding:'12px 20px', borderRadius:12, background:'linear-gradient(to right,#00CEC9,#00B894)', color:'white', fontWeight:700, fontSize:14, border:'none', cursor:busy ? 'not-allowed' : 'pointer', opacity:loading ? 0.7 : 1, boxShadow:'0 6px 20px rgba(0,206,201,0.3)', flex:1, minWidth:120, justifyContent:'center' }}>
-          <Download style={{ width:16, height:16 }} />
+          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '12px 20px', borderRadius: 12, background: 'linear-gradient(to right,#00CEC9,#00B894)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: busy ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 6px 20px rgba(0,206,201,0.3)', flex: 1, minWidth: 110, justifyContent: 'center' }}>
+          <Download style={{ width: 16, height: 16 }} />
           {loading ? 'Saving…' : 'Download'}
         </button>
-
         <button onClick={printCard} disabled={busy}
-          style={{ display:'flex', alignItems:'center', gap:7, padding:'12px 20px', borderRadius:12, background:'linear-gradient(to right,#0369a1,#0284c7)', color:'white', fontWeight:700, fontSize:14, border:'none', cursor:busy ? 'not-allowed' : 'pointer', boxShadow:'0 6px 20px rgba(3,105,161,0.3)', flex:1, minWidth:120, justifyContent:'center' }}>
-          <Printer style={{ width:16, height:16 }} />
+          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '12px 20px', borderRadius: 12, background: 'linear-gradient(to right,#0369a1,#0284c7)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: busy ? 'not-allowed' : 'pointer', boxShadow: '0 6px 20px rgba(3,105,161,0.25)', flex: 1, minWidth: 110, justifyContent: 'center' }}>
+          <Printer style={{ width: 16, height: 16 }} />
           Print
         </button>
-
         <button onClick={shareCard} disabled={busy}
-          style={{ display:'flex', alignItems:'center', gap:7, padding:'12px 20px', borderRadius:12, background:'linear-gradient(135deg,#6C3FC8,#9B59B6)', color:'white', fontWeight:700, fontSize:14, border:'none', cursor:busy ? 'not-allowed' : 'pointer', opacity:sharing ? 0.7 : 1, boxShadow:'0 6px 20px rgba(108,63,200,0.3)', flex:1, minWidth:120, justifyContent:'center' }}>
-          <Share2 style={{ width:16, height:16 }} />
+          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '12px 20px', borderRadius: 12, background: 'linear-gradient(135deg,#6C3FC8,#9B59B6)', color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: busy ? 'not-allowed' : 'pointer', opacity: sharing ? 0.7 : 1, boxShadow: '0 6px 20px rgba(108,63,200,0.25)', flex: 1, minWidth: 110, justifyContent: 'center' }}>
+          <Share2 style={{ width: 16, height: 16 }} />
           {sharing ? 'Preparing…' : 'Share'}
         </button>
       </div>
