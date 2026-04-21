@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase-client';
 import {
@@ -56,11 +56,18 @@ function LegalFooter() {
 export default function BeneficiaryDashboardPage() {
   const router = useRouter();
   const { user, loading: authLoading, signOut, refreshUser } = useAuth();
+  const searchParams = useSearchParams();
 
   const [balance, setBalance]           = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading]           = useState(true);
-  const [activeTab, setActiveTab]       = useState<'overview' | 'chat' | 'profile' | 'history'>('overview');
+  const [activeTab, setActiveTab]       = useState<'overview' | 'chat' | 'profile' | 'history'>(() => {
+    if (typeof window !== 'undefined') {
+      const tab = new URLSearchParams(window.location.search).get('tab');
+      if (tab === 'profile' || tab === 'chat' || tab === 'history') return tab as any;
+    }
+    return 'overview';
+  });
 
   const [editing, setEditing]         = useState(false);
   const [saving, setSaving]           = useState(false);
@@ -182,6 +189,7 @@ export default function BeneficiaryDashboardPage() {
   }
 
   const isActivated = balance?.payment_status === 'verified';
+  const profileComplete = !!(fullName?.trim() && profilePic?.trim());
 
   if (!isActivated && !isAdmin) {
     router.push('/beneficiary/activation');
@@ -386,6 +394,7 @@ export default function BeneficiaryDashboardPage() {
             currentUserRole={userRole}
             currentUserName={fullName || user.email || 'Member'}
             currentUserAvatar={profilePic || undefined}
+            profileComplete={profileComplete}
           />
         )}
 
