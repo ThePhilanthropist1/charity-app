@@ -396,6 +396,7 @@ export default function BeneficiaryDashboardPage() {
             currentUserName={fullName || user.email || 'Member'}
             currentUserAvatar={profilePic || undefined}
             profileComplete={profileComplete}
+            onGoToProfile={() => setActiveTab('profile')}
           />
         )}
 

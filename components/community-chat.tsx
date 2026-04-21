@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase-client';
 import { Send, MessageCircle, Reply, Pencil, Trash2, Flag, X, Check, Heart } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+
 
 const ROLE_BADGE: Record<string, { label: string; color: string; bg: string; border: string }> = {
   admin:          { label: 'Admin',          color: '#9B59B6', bg: 'rgba(155,89,182,0.18)', border: 'rgba(155,89,182,0.4)' },
@@ -38,10 +38,10 @@ interface Props {
   currentUserName: string;
   currentUserAvatar?: string;
   profileComplete: boolean;
+  onGoToProfile?: () => void;
 }
 
-export function CommunityChat({ currentUserId, currentUserRole, currentUserName, currentUserAvatar, profileComplete }: Props) {
-  const router = useRouter();
+export function CommunityChat({ currentUserId, currentUserRole, currentUserName, currentUserAvatar, profileComplete, onGoToProfile }: Props) {
   const [messages,    setMessages]    = useState<ChatMsg[]>([]);
   const [input,       setInput]       = useState('');
   const [loading,     setLoading]     = useState(true);
@@ -185,7 +185,7 @@ export function CommunityChat({ currentUserId, currentUserRole, currentUserName,
             To join the community chat you need a <strong style={{ color:'white' }}>profile photo</strong> and <strong style={{ color:'white' }}>full name</strong> so others know who you are.
           </p>
         </div>
-        <button onClick={() => router.push('/beneficiary-dashboard?tab=profile')}
+        <button onClick={() => onGoToProfile?.()}
           style={{ padding:'12px 28px', borderRadius:12, background:'linear-gradient(to right,#00CEC9,#00B894)', color:'#020C1B', fontWeight:800, fontSize:14, border:'none', cursor:'pointer', boxShadow:'0 6px 20px rgba(0,206,201,0.3)' }}>
           Complete Profile →
         </button>
@@ -414,7 +414,7 @@ export function CommunityChat({ currentUserId, currentUserRole, currentUserName,
           <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8, padding:'8px 12px', borderRadius:10, backgroundColor:'rgba(255,193,7,0.08)', border:'1px solid rgba(255,193,7,0.2)' }}>
             <p style={{ fontSize:12, color:'#ffc107', margin:0, flex:1 }}>{sendError}</p>
             {sendError.includes('profile') && (
-              <button onClick={() => router.push('/beneficiary-dashboard?tab=profile')}
+              <button onClick={() => onGoToProfile?.()}
                 style={{ fontSize:11, fontWeight:700, color:'#020C1B', background:'linear-gradient(to right,#00CEC9,#00B894)', border:'none', borderRadius:7, padding:'4px 10px', cursor:'pointer', whiteSpace:'nowrap' }}>
                 Update Profile
               </button>
