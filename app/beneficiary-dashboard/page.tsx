@@ -6,11 +6,12 @@ import { useAuth } from '@/contexts/auth-context';
 import { supabase } from '@/lib/supabase-client';
 import {
   CheckCircle, Coins, LogOut, Edit2, Save, X,
-  Camera, ChevronRight, Award, AlertCircle, Shield, Users
+  Camera, ChevronRight, Award, AlertCircle, Shield, Users, MessageCircle
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { MembershipCard } from '@/components/membership-card';
+import { CommunityChat } from '@/components/community-chat';
 
 // ─── TELEGRAM POPUP LOGIC ─────────────────────────────────────────────────────
 function shouldShowTelegramPopup(userId: string): boolean {
@@ -19,21 +20,11 @@ function shouldShowTelegramPopup(userId: string): boolean {
   const now = Date.now();
   const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
   const MAX_SHOWS_PER_CYCLE = 5;
-
-  if (!raw) {
-    localStorage.setItem(key, JSON.stringify({ count: 0, cycleStart: now }));
-    return true;
-  }
-
+  if (!raw) { localStorage.setItem(key, JSON.stringify({ count: 0, cycleStart: now })); return true; }
   let data: { count: number; cycleStart: number };
-  try { data = JSON.parse(raw); }
-  catch { data = { count: 0, cycleStart: now }; }
-
+  try { data = JSON.parse(raw); } catch { data = { count: 0, cycleStart: now }; }
   const elapsed = now - data.cycleStart;
-  if (elapsed >= THIRTY_DAYS) {
-    localStorage.setItem(key, JSON.stringify({ count: 0, cycleStart: now }));
-    return true;
-  }
+  if (elapsed >= THIRTY_DAYS) { localStorage.setItem(key, JSON.stringify({ count: 0, cycleStart: now })); return true; }
   return data.count < MAX_SHOWS_PER_CYCLE;
 }
 
@@ -42,8 +33,7 @@ function recordTelegramPopupShown(userId: string) {
   const raw = localStorage.getItem(key);
   const now = Date.now();
   let data: { count: number; cycleStart: number };
-  try { data = raw ? JSON.parse(raw) : { count: 0, cycleStart: now }; }
-  catch { data = { count: 0, cycleStart: now }; }
+  try { data = raw ? JSON.parse(raw) : { count: 0, cycleStart: now }; } catch { data = { count: 0, cycleStart: now }; }
   data.count += 1;
   localStorage.setItem(key, JSON.stringify(data));
 }
@@ -67,23 +57,24 @@ export default function BeneficiaryDashboardPage() {
   const router = useRouter();
   const { user, loading: authLoading, signOut, refreshUser } = useAuth();
 
-  const [balance, setBalance] = useState<any>(null);
+  const [balance, setBalance]           = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'profile' | 'history'>('overview');
+  const [loading, setLoading]           = useState(true);
+  const [activeTab, setActiveTab]       = useState<'overview' | 'chat' | 'profile' | 'history'>('overview');
 
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [fullName, setFullName] = useState('');
-  const [country, setCountry] = useState('');
-  const [phone, setPhone] = useState('');
-  const [profilePic, setProfilePic] = useState('');
+  const [editing, setEditing]         = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [fullName, setFullName]       = useState('');
+  const [country, setCountry]         = useState('');
+  const [phone, setPhone]             = useState('');
+  const [profilePic, setProfilePic]   = useState('');
   const [uploadingPic, setUploadingPic] = useState(false);
-  const [saveMsg, setSaveMsg] = useState('');
-  const [saveError, setSaveError] = useState('');
+  const [saveMsg, setSaveMsg]         = useState('');
+  const [saveError, setSaveError]     = useState('');
 
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin]                 = useState(false);
   const [isPhilanthropist, setIsPhilanthropist] = useState(false);
+  const [userRole, setUserRole]               = useState('beneficiary');
   const [showTelegramPopup, setShowTelegramPopup] = useState(false);
 
   useEffect(() => {
@@ -102,9 +93,11 @@ export default function BeneficiaryDashboardPage() {
     setLoading(true);
     try {
       const { data: freshUser } = await supabase.from('users').select('role, email').eq('id', user.id).single();
-      const role = freshUser?.role || user?.role || '';
+      const role  = freshUser?.role || user?.role || 'beneficiary';
       const email = (freshUser?.email || user?.email || '').toLowerCase();
-      setIsAdmin(role === 'admin' || email === 'dinfadashe@gmail.com');
+      const adminFlag = role === 'admin' || email === 'dinfadashe@gmail.com';
+      setIsAdmin(adminFlag);
+      setUserRole(adminFlag ? 'admin' : role);
 
       let philFlag = role === 'philanthropist';
       if (!philFlag) {
@@ -112,14 +105,11 @@ export default function BeneficiaryDashboardPage() {
         philFlag = !!kycData;
       }
       setIsPhilanthropist(philFlag);
+      if (philFlag && role !== 'admin') setUserRole('philanthropist');
 
       const { data: bal } = await supabase
-        .from('beneficiary_activations')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .from('beneficiary_activations').select('*').eq('user_id', user.id)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
       setBalance(bal);
 
       if (bal?.payment_status === 'verified' && shouldShowTelegramPopup(user.id)) {
@@ -127,11 +117,8 @@ export default function BeneficiaryDashboardPage() {
       }
 
       const { data: txns } = await supabase
-        .from('token_transactions')
-        .select('*')
-        .eq('beneficiary_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
+        .from('token_transactions').select('*').eq('beneficiary_id', user.id)
+        .order('created_at', { ascending: false }).limit(10);
       setTransactions(txns || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -148,7 +135,7 @@ export default function BeneficiaryDashboardPage() {
     if (file.size > 2 * 1024 * 1024) { setSaveError('Image must be under 2MB'); return; }
     setUploadingPic(true); setSaveError('');
     try {
-      const ext = file.name.split('.').pop();
+      const ext  = file.name.split('.').pop();
       const path = `profiles/${user.id}.${ext}`;
       const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type });
       if (uploadError) throw uploadError;
@@ -254,6 +241,14 @@ export default function BeneficiaryDashboardPage() {
     </div>
   );
 
+  // Tab config
+  const tabs = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'chat',     label: '💬 Chat'  },
+    { key: 'profile',  label: 'Profile'  },
+    { key: 'history',  label: 'History'  },
+  ] as const;
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0A1628', color: 'white', fontFamily: 'sans-serif', position: 'relative', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
@@ -266,22 +261,13 @@ export default function BeneficiaryDashboardPage() {
               <svg width="30" height="30" viewBox="0 0 24 24" fill="#0088cc"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/></svg>
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, color: 'white', marginBottom: 8 }}>Join Our Telegram Community!</h2>
-            <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.7, marginBottom: 24 }}>
-              Stay updated with the latest Charity Token news, distribution announcements, and connect with fellow beneficiaries in our official Telegram group.
-            </p>
-            <a
-              href="https://t.me/CharityTokenProject1"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={dismissTelegramPopup}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12, boxSizing: 'border-box', boxShadow: '0 8px 24px rgba(0,136,204,0.3)' }}
-            >
+            <p style={{ fontSize: 13, color: '#8FA3BF', lineHeight: 1.7, marginBottom: 24 }}>Stay updated with the latest Charity Token news, distribution announcements, and connect with fellow beneficiaries.</p>
+            <a href="https://t.me/CharityTokenProject1" target="_blank" rel="noopener noreferrer" onClick={dismissTelegramPopup}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '14px', borderRadius: 12, background: 'linear-gradient(to right, #0088cc, #00CEC9)', color: 'white', fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12, boxSizing: 'border-box', boxShadow: '0 8px 24px rgba(0,136,204,0.3)' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.008 9.456c-.148.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.09 14.99l-2.94-.92c-.64-.204-.652-.64.136-.948l11.49-4.43c.533-.194 1-.12.786.556z"/></svg>
               Join Telegram Group
             </a>
-            <button onClick={dismissTelegramPopup} style={{ background: 'none', border: 'none', color: '#8FA3BF', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>
-              Maybe later
-            </button>
+            <button onClick={dismissTelegramPopup} style={{ background: 'none', border: 'none', color: '#8FA3BF', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>Maybe later</button>
           </div>
         </div>
       )}
@@ -344,9 +330,13 @@ export default function BeneficiaryDashboardPage() {
 
         {/* TABS */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 20, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 4 }}>
-          {(['overview', 'profile', 'history'] as const).map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, backgroundColor: activeTab === tab ? '#0F1F35' : 'transparent', color: activeTab === tab ? '#00CEC9' : '#8FA3BF', transition: 'all 0.2s' }}>
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          {tabs.map((tab) => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                backgroundColor: activeTab === tab.key ? '#0F1F35' : 'transparent',
+                color: activeTab === tab.key ? '#00CEC9' : '#8FA3BF',
+                transition: 'all 0.2s', position: 'relative' }}>
+              {tab.label}
             </button>
           ))}
         </div>
@@ -368,20 +358,35 @@ export default function BeneficiaryDashboardPage() {
               ))}
             </div>
 
-            <MembershipCard
-              userId={user?.id || ''}
-              fullName={fullName}
-              email={user?.email || ''}
-              profileImage={profilePic}
-              joinDate={user?.created_at || new Date().toISOString()}
-              country={country}
-              isActivated={isActivated}
-            />
+            {/* Chat teaser card */}
+            <div onClick={() => setActiveTab('chat')} style={{ padding: '16px 18px', borderRadius: 16, border: '1px solid rgba(0,206,201,0.25)', background: 'linear-gradient(135deg, rgba(0,206,201,0.06) 0%, rgba(0,184,148,0.04) 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg,#00CEC9,#00B894)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <MessageCircle style={{ width: 22, height: 22, color: '#020C1B' }} />
+                </div>
+                <div>
+                  <p style={{ fontWeight: 700, fontSize: 14, color: 'white', marginBottom: 3 }}>Community Chat</p>
+                  <p style={{ fontSize: 12, color: '#8FA3BF' }}>Chat with beneficiaries & philanthropists in real time</p>
+                </div>
+              </div>
+              <ChevronRight style={{ width: 18, height: 18, color: '#00CEC9', flexShrink: 0 }} />
+            </div>
 
+            <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} isActivated={isActivated} />
             {isPhilanthropist && <PhilanthropistDashboardCard />}
             {isAdmin && <AdminPanelCard />}
             {isActivated && !isPhilanthropist && <BecomePhilanthropistCard />}
           </div>
+        )}
+
+        {/* CHAT TAB */}
+        {activeTab === 'chat' && user?.id && (
+          <CommunityChat
+            currentUserId={user.id}
+            currentUserRole={userRole}
+            currentUserName={fullName || user.email || 'Member'}
+            currentUserAvatar={profilePic || undefined}
+          />
         )}
 
         {/* PROFILE TAB */}
@@ -428,9 +433,9 @@ export default function BeneficiaryDashboardPage() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {[
-                  { label: 'Full Name',     value: fullName, setter: setFullName, placeholder: 'Enter your full name',     type: 'text' },
-                  { label: 'Country',       value: country,  setter: setCountry,  placeholder: 'Enter your country',       type: 'text' },
-                  { label: 'Phone Number',  value: phone,    setter: setPhone,    placeholder: 'Enter your phone number',  type: 'tel'  },
+                  { label: 'Full Name',    value: fullName, setter: setFullName, placeholder: 'Enter your full name',    type: 'text' },
+                  { label: 'Country',      value: country,  setter: setCountry,  placeholder: 'Enter your country',      type: 'text' },
+                  { label: 'Phone Number', value: phone,    setter: setPhone,    placeholder: 'Enter your phone number', type: 'tel'  },
                 ].map((field) => (
                   <div key={field.label}>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8FA3BF', marginBottom: 6 }}>{field.label}</label>
@@ -454,15 +459,7 @@ export default function BeneficiaryDashboardPage() {
 
             <div style={{ padding: 20, borderRadius: 18, border: '1px solid rgba(0,206,201,0.2)', backgroundColor: 'rgba(255,255,255,0.04)' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#8FA3BF', marginBottom: 14 }}>Your Membership ID Card</p>
-              <MembershipCard
-                userId={user?.id || ''}
-                fullName={fullName}
-                email={user?.email || ''}
-                profileImage={profilePic}
-                joinDate={user?.created_at || new Date().toISOString()}
-                country={country}
-                isActivated={isActivated}
-              />
+              <MembershipCard userId={user?.id || ''} fullName={fullName} email={user?.email || ''} profileImage={profilePic} joinDate={user?.created_at || new Date().toISOString()} country={country} isActivated={isActivated} />
             </div>
 
             {isPhilanthropist && <PhilanthropistDashboardCard />}
