@@ -39,12 +39,19 @@ export async function POST(request: NextRequest) {
 
     // Pure admin (no philanthropist record) skips ACT deduction
     // Admin-philanthropist (has a philanthropists record) is still debited
-    const { data: philCheck } = await supabaseAdmin
+    const { data: philCheck, error: philCheckError } = await supabaseAdmin
       .from('philanthropists')
-      .select('id')
+      .select('id, act_balance')
       .or(`user_id.eq.${userId},id.eq.${userId}`)
       .maybeSingle();
+
+    console.log('[phil-activate] userId:', userId);
+    console.log('[phil-activate] isAdmin:', isAdmin);
+    console.log('[phil-activate] philCheck:', philCheck);
+    console.log('[phil-activate] philCheckError:', philCheckError);
+
     const skipDeduction = isAdmin && !philCheck;
+    console.log('[phil-activate] skipDeduction:', skipDeduction);
 
     // ── PARSE BODY ────────────────────────────────────────────────────────────
     const { targetUserId, action } = await request.json();
