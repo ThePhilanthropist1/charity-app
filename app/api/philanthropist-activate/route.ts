@@ -37,6 +37,15 @@ export async function POST(request: NextRequest) {
     if (!isPhilanthropist)
       return NextResponse.json({ success: false, error: 'Not authorized as philanthropist' }, { status: 403 });
 
+    // Pure admin (no philanthropist record) skips ACT deduction
+    // Admin-philanthropist (has a philanthropists record) is still debited
+    const { data: philCheck } = await supabaseAdmin
+      .from('philanthropists')
+      .select('id')
+      .or(`user_id.eq.${userId},id.eq.${userId}`)
+      .maybeSingle();
+    const skipDeduction = isAdmin && !philCheck;
+
     // ── PARSE BODY ────────────────────────────────────────────────────────────
     const { targetUserId, action } = await request.json();
 
@@ -91,7 +100,7 @@ export async function POST(request: NextRequest) {
     let philRecord = null;
     let newActBalance = 0;
 
-    if (!isAdmin) {
+    if (!skipDeduction) {
       philRecord = await getPhilRecord(userId);
 
       if (!philRecord)
@@ -161,7 +170,7 @@ export async function POST(request: NextRequest) {
     if (activationError) {
       console.error('[philanthropist-activate] Activation insert failed:', activationError);
 
-      if (!isAdmin && philRecord) {
+      if (!skipDeduction && philRecord) {
         // Refund ACT
         await supabaseAdmin
           .from('philanthropists')
@@ -181,8 +190,8 @@ export async function POST(request: NextRequest) {
     // 7. Return success with new balance
     return NextResponse.json({
       success:    true,
-      newBalance: isAdmin ? null : newActBalance,
-      deducted:   isAdmin ? 0 : ACT_PER_ACTIVATION,
+      newBalance: skipDeduction ? null : newActBalance,
+      deducted:   skipDeduction ? 0 : ACT_PER_ACTIVATION,
     });
 
   } catch (error) {
