@@ -244,21 +244,61 @@ export async function PATCH(request: NextRequest) {
 
       if (error) return NextResponse.json<ApiResponse<null>>({ success: false, error: 'Failed to approve: ' + error.message }, { status: 500 });
 
-      // Promote to philanthropist
+      // ── Promote to philanthropist ─────────────────────────────────────────
       if (submission.user_id) {
+        const now = new Date().toISOString();
+
+        // 1. Update user role
         await supabaseAdmin.from('users')
-          .update({ role: 'philanthropist', is_active: true, updated_at: new Date().toISOString() })
+          .update({ role: 'philanthropist', is_active: true, updated_at: now })
           .eq('id', submission.user_id);
 
-        const { data: existingPhil } = await supabaseAdmin.from('philanthropists').select('id').eq('user_id', submission.user_id).maybeSingle();
+        // 2. Create philanthropists record if it doesn't exist
+        //    Use user_id as id so lookups always work
+        const { data: existingPhil } = await supabaseAdmin
+          .from('philanthropists')
+          .select('id')
+          .or(`user_id.eq.${submission.user_id},id.eq.${submission.user_id}`)
+          .maybeSingle();
+
         if (!existingPhil) {
-          await supabaseAdmin.from('philanthropists').insert({
-            user_id: submission.user_id, act_balance: 1000,
-            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-          });
+          const { error: philInsertError } = await supabaseAdmin
+            .from('philanthropists')
+            .insert({
+              id:          submission.user_id,  // use user_id as id — keeps lookups consistent
+              user_id:     submission.user_id,
+              act_balance: 1000,                // starting balance
+              kyc_submission_id: submission_id,
+              kyc_status:        'approved',
+              kyc_submitted_at:  submission.submitted_at,
+              kyc_approved_at:   now,
+              kyc_reviewer_id:   userId,
+              created_at:        now,
+              updated_at:        now,
+            });
+
+          if (philInsertError) {
+            console.error('[kyc] Failed to create philanthropist record:', philInsertError.message);
+            // Don't block approval — just log
+          } else {
+            console.log('[kyc] Philanthropist record created for:', submission.user_id);
+          }
         } else {
-          await supabaseAdmin.from('philanthropists').update({ updated_at: new Date().toISOString() }).eq('user_id', submission.user_id);
+          // Update KYC status on existing record
+          await supabaseAdmin.from('philanthropists')
+            .update({
+              kyc_submission_id: submission_id,
+              kyc_status:        'approved',
+              kyc_approved_at:   now,
+              kyc_reviewer_id:   userId,
+              updated_at:        now,
+            })
+            .or(`user_id.eq.${submission.user_id},id.eq.${submission.user_id}`);
         }
+
+        // 3. Create initial beneficiary_activations tracking entry if not exists
+        //    (so philanthropist appears in admin stats immediately)
+        console.log('[kyc] Philanthropist setup complete for:', submission.user_id);
       }
 
       // Audit log
