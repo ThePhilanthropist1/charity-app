@@ -42,7 +42,7 @@ async function deductACT(userId: string, currentBalance: number) {
   return { newBalance };
 }
 
-async function activateBeneficiary(targetUserId: string, _philanthropistId: string): Promise<{ success: boolean; alreadyActive: boolean; error?: string }> {
+async function activateBeneficiary(targetUserId: string, _philanthropistId: string): Promise<{ success: boolean; alreadyActive: boolean; newBalance?: number; error?: string }> {
   const token = getAuthToken();
   if (!token) return { success: false, alreadyActive: false, error: 'Not authenticated. Please log in again.' };
   try {
@@ -54,7 +54,8 @@ async function activateBeneficiary(targetUserId: string, _philanthropistId: stri
     const data = await res.json();
     if (res.status === 409 && data.error === 'already_active') return { success: false, alreadyActive: true };
     if (!data.success) return { success: false, alreadyActive: false, error: data.error || 'Activation failed' };
-    return { success: true, alreadyActive: false };
+        // API now handles ACT deduction atomically
+    return { success: true, alreadyActive: false, newBalance: data.newBalance };
   } catch (e: any) {
     return { success: false, alreadyActive: false, error: e.message || 'Network error' };
   }
@@ -228,7 +229,8 @@ export default function PhilanthropistDashboardPage() {
       const result = await activateBeneficiary(targetUserId, user.id);
       if (result.alreadyActive) { showToast(`ℹ️ This account is already activated. No ACT was deducted.`, 'info'); await loadAll(); return; }
       if (!result.success) { showToast(`Activation failed: ${result.error}`, 'error'); return; }
-      const { newBalance } = await deductACT(user.id, actBalance);
+      // ACT deducted server-side atomically
+      const newBalance = result.newBalance ?? (actBalance - ACT_PER_ACTIVATION);
       setActBalance(newBalance);
       const name = item.users?.full_name || item.users?.email || 'User';
       showToast(`✅ ${name} activated! −${ACT_PER_ACTIVATION} ACT deducted. Balance: ${newBalance} ACT`, 'success');
@@ -498,7 +500,8 @@ function ActivateByEmail({ userId, actBalance, onSuccess, onAlreadyActive, onErr
       const result = await activateBeneficiary(foundUser.id, userId);
       if (result.alreadyActive) { onAlreadyActive(name); setFoundUser({ ...foundUser, activation: { payment_status: 'verified' } }); return; }
       if (!result.success) { onError(`Activation failed: ${result.error}`); return; }
-      const { newBalance } = await deductACT(userId, actBalance);
+      // ACT deducted server-side atomically
+      const newBalance = result.newBalance ?? (actBalance - ACT_PER_ACTIVATION);
       onSuccess(newBalance, name);
       setFoundUser(null); setEmail('');
     } catch (e: any) { onError(`Activation failed: ${e.message}`); }
